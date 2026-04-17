@@ -36,14 +36,11 @@ const TYPE_GROUPS = [
   { label: '보건소',        codes: ['61', '62', '63'], color: '#5d4037' },
 ];
 
-// 클러스터 크기별 설정
-const CLUSTER_CONFIGS = [
-  { threshold: 10,   size: 36, color: '#1a73e8' },
-  { threshold: 50,   size: 44, color: '#0f9d58' },
-  { threshold: 200,  size: 52, color: '#f4b400' },
-  { threshold: 500,  size: 60, color: '#db4437' },
-  { threshold: 1000, size: 68, color: '#9c27b0' },
-];
+// 줌 레벨별 클러스터 격자 크기 (위경도 단위)
+const CLUSTER_GRID = {
+  5: 2.0, 6: 1.5, 7: 1.0, 8: 0.5, 9: 0.25,
+  10: 0.12, 11: 0.06, 12: 0.03, 13: 0.015,
+};
 
 const DATA_BASE_URL = './data';
 const RESULTS_DISPLAY_LIMIT = 300;
@@ -53,7 +50,6 @@ const RESULTS_DISPLAY_LIMIT = 300;
 // ============================================================
 const state = {
   map: null,
-  cluster: null,
   allData: [],
   filteredData: [],
   markers: [],
@@ -85,6 +81,9 @@ function initMap() {
       position: naver.maps.Position.TOP_RIGHT,
     },
   });
+
+  // 지도 이동/줌 변경 시 클러스터 재계산
+  naver.maps.Event.addListener(state.map, 'idle', updateMarkers);
 }
 
 // ============================================================
@@ -249,54 +248,78 @@ function applyFilters() {
 }
 
 // ============================================================
+// 클러스터링 (외부 라이브러리 없이 직접 구현)
+// ============================================================
+function buildClusters(items, zoom) {
+  // 줌 14 이상: 개별 마커 표시
+  if (zoom >= 14) {
+    return items
+      .filter(d => d.lat && d.lng)
+      .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
+  }
+
+  const gridSize = CLUSTER_GRID[Math.max(5, Math.min(zoom, 13))] || 2.0;
+  const grid = {};
+
+  items.forEach(item => {
+    if (!item.lat || !item.lng) return;
+    const gx = Math.floor(item.lng / gridSize);
+    const gy = Math.floor(item.lat / gridSize);
+    const key = `${gx}:${gy}`;
+    if (!grid[key]) {
+      grid[key] = { latSum: 0, lngSum: 0, count: 0, item };
+    }
+    grid[key].latSum += item.lat;
+    grid[key].lngSum += item.lng;
+    grid[key].count++;
+  });
+
+  return Object.values(grid).map(c => ({
+    lat: c.latSum / c.count,
+    lng: c.lngSum / c.count,
+    count: c.count,
+    item: c.item,
+  }));
+}
+
+// ============================================================
 // 마커 업데이트
 // ============================================================
 function updateMarkers() {
-  // 기존 클러스터 및 마커 제거
-  if (state.cluster) {
-    state.cluster.setMap(null);
-    state.cluster = null;
-  }
   state.markers.forEach(m => m.setMap(null));
   state.markers = [];
 
-  const validData = state.filteredData.filter(d => d.lat && d.lng);
-  if (validData.length === 0) return;
+  if (state.filteredData.length === 0) return;
 
-  state.markers = validData.map(item => {
-    const group = getGroupByCode(item.clCd);
-    const color = group ? group.color : '#666';
+  const zoom = state.map.getZoom();
+  const clusters = buildClusters(state.filteredData, zoom);
+
+  clusters.forEach(cluster => {
+    const icon = cluster.count === 1
+      ? buildMarkerIcon(getGroupByCode(cluster.item.clCd)?.color || '#666')
+      : buildClusterIcon(cluster.count);
 
     const marker = new naver.maps.Marker({
-      position: new naver.maps.LatLng(item.lat, item.lng),
-      title: item.name,
-      icon: buildMarkerIcon(color),
+      position: new naver.maps.LatLng(cluster.lat, cluster.lng),
+      map: state.map,
+      icon,
+      title: cluster.count === 1 ? cluster.item.name : `${cluster.count}개 기관`,
     });
 
-    naver.maps.Event.addListener(marker, 'click', () => selectFacility(item));
-    marker._facilityId = item.id;
-    return marker;
-  });
+    if (cluster.count === 1) {
+      naver.maps.Event.addListener(marker, 'click', () => selectFacility(cluster.item));
+    } else {
+      naver.maps.Event.addListener(marker, 'click', () => {
+        state.map.setCenter(new naver.maps.LatLng(cluster.lat, cluster.lng));
+        state.map.setZoom(zoom + 2);
+      });
+    }
 
-  // 마커 클러스터링 설정
-  state.cluster = new naver.maps.MarkerClustering({
-    map: state.map,
-    markers: state.markers,
-    disableClickZoom: false,
-    minClusterSize: 2,
-    maxZoom: 14,
-    gridSize: 60,
-    icons: buildClusterIcons(),
-    indexGenerator: CLUSTER_CONFIGS.map(c => c.threshold),
-    stylingFunction(clusterMarker, count) {
-      const div = clusterMarker.getElement().querySelector('.cluster-marker');
-      if (div) div.textContent = count >= 1000 ? Math.floor(count / 1000) + 'k' : count;
-    },
+    state.markers.push(marker);
   });
 }
 
 function buildMarkerIcon(color) {
-  // 원형 핀 마커 (SVG)
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="28" viewBox="0 0 22 28">`,
     `<path d="M11 0C4.925 0 0 4.925 0 11c0 8.25 11 17 11 17s11-8.75 11-17C22 4.925 17.075 0 11 0z"`,
@@ -312,12 +335,17 @@ function buildMarkerIcon(color) {
   };
 }
 
-function buildClusterIcons() {
-  return CLUSTER_CONFIGS.map(({ size, color }) => ({
-    content: `<div class="cluster-marker" style="width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size * 0.32)}px;"></div>`,
+function buildClusterIcon(count) {
+  const size = count >= 1000 ? 56 : count >= 500 ? 52 : count >= 100 ? 46 : count >= 10 ? 40 : 34;
+  const color = count >= 1000 ? '#9c27b0' : count >= 500 ? '#db4437' : count >= 100 ? '#f4b400' : count >= 10 ? '#0f9d58' : '#1a73e8';
+  const label = count >= 1000 ? Math.floor(count / 1000) + 'k' : String(count);
+  const fontSize = Math.round(size * 0.3);
+
+  return {
+    content: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:${fontSize}px;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid rgba(255,255,255,0.7);cursor:pointer;">${label}</div>`,
     size: new naver.maps.Size(size, size),
     anchor: new naver.maps.Point(size / 2, size / 2),
-  }));
+  };
 }
 
 // ============================================================
