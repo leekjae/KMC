@@ -99,27 +99,34 @@ def fetch_page(sido_code: str, page_no: int) -> tuple[list, int]:
 # 데이터 정규화
 # ============================================================
 def normalize(item: dict) -> dict:
-    """API 원본 필드를 프론트엔드 형식으로 변환"""
+    """API 원본 필드를 프론트엔드 형식으로 변환 (경량화)"""
     lat = _to_float(item.get('YPos'))
     lng = _to_float(item.get('XPos'))
 
+    # 좌표 정밀도 5자리로 제한 (약 1.1m 오차, 지도 표시에 충분)
+    if lat: lat = round(lat, 5)
+    if lng: lng = round(lng, 5)
+
+    # ykiho는 길이가 80~100자이므로 앞 16자만 사용 (충분히 고유)
+    raw_id = str(item.get('ykiho', ''))
+    short_id = raw_id[:16] if raw_id else ''
+
     return {
-        'id':         str(item.get('ykiho', '')),
-        'name':       str(item.get('yadmNm', '')).strip(),
-        'clCd':       str(item.get('clCd', '')),
-        'clCdNm':     str(item.get('clCdNm', '')).strip(),
-        'sidoCd':     str(item.get('sidoCd', '')),      # 숫자 → 문자열 변환
-        'sidoCdNm':   str(item.get('sidoCdNm', '')).strip(),
-        'sgguCd':     str(item.get('sgguCd', '')),      # 숫자 → 문자열 변환
-        'sgguCdNm':   str(item.get('sgguCdNm', '')).strip(),
-        'addr':       str(item.get('addr', '')).strip(),
-        'phone':      str(item.get('telno', '')).strip(),
-        'hospUrl':    str(item.get('hospUrl', '')).strip(),
-        'estbDd':     str(item.get('estbDd', '')),
-        'drTotCnt':   item.get('drTotCnt', ''),
-        'mdeptSdrCnt': item.get('mdeptSdrCnt', ''),
-        'lat':        lat,
-        'lng':        lng,
+        'id':        short_id,
+        'name':      str(item.get('yadmNm', '')).strip(),
+        'clCd':      str(item.get('clCd', '')),
+        'clCdNm':    str(item.get('clCdNm', '')).strip(),
+        'sidoCd':    str(item.get('sidoCd', '')),
+        'sidoCdNm':  str(item.get('sidoCdNm', '')).strip(),
+        'sgguCdNm':  str(item.get('sgguCdNm', '')).strip(),
+        'addr':      str(item.get('addr', '')).strip(),
+        'phone':     str(item.get('telno', '')).strip(),
+        'hospUrl':   str(item.get('hospUrl', '')).strip(),
+        'estbDd':    str(item.get('estbDd', '')),
+        'drTotCnt':  item.get('drTotCnt') or '',
+        'mdeptSdrCnt': item.get('mdeptSdrCnt') or '',
+        'lat':       lat,
+        'lng':       lng,
     }
 
 

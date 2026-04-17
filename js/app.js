@@ -31,7 +31,8 @@ const TYPE_GROUPS = [
   { label: '병원',          codes: ['21', '28', '29'],        color: '#f57c00' },
   { label: '의원',          codes: ['31'],                    color: '#388e3c' },
   { label: '치과',          codes: ['41', '51'],              color: '#0288d1' },
-  { label: '한방',          codes: ['92', '93'],              color: '#7b1fa2' },
+  { label: '한방병원',      codes: ['92'],                    color: '#7b1fa2' },
+  { label: '한의원',        codes: ['93'],                    color: '#9c4dcc' },
   { label: '보건소',        codes: ['71', '72', '73', '75'],  color: '#5d4037' },
 ];
 
@@ -247,11 +248,8 @@ function applyFilters() {
   document.getElementById('visible-count').textContent =
     state.filteredData.length.toLocaleString();
 
-  // 줌 5~13 클러스터 미리 계산 (필터 변경 시 1회만 실행)
+  // 클러스터 캐시 초기화 (줌 레벨 접근 시 그때그때 계산)
   state.cachedClusters = {};
-  for (let z = 5; z <= 13; z++) {
-    state.cachedClusters[z] = buildClusters(state.filteredData, z);
-  }
 
   updateMarkers();
   renderResultsList();
@@ -312,8 +310,12 @@ function updateMarkers() {
       .slice(0, 500)  // 최대 500개 제한
       .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
   } else {
-    // 줌 5~13: 미리 계산된 클러스터 캐시 사용
-    clusters = state.cachedClusters[Math.max(5, Math.min(zoom, 13))] || [];
+    // 줌 5~13: 캐시 확인 후 없으면 그때 계산
+    const z = Math.max(5, Math.min(zoom, 13));
+    if (!state.cachedClusters[z]) {
+      state.cachedClusters[z] = buildClusters(state.filteredData, z);
+    }
+    clusters = state.cachedClusters[z];
   }
 
   clusters.forEach(cluster => {
