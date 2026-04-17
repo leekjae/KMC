@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>전국 병의원 현황 지도</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- 사이드바 -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h1>전국 병의원 현황</h1>
+
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="기관명 또는 주소로 검색" autocomplete="off">
+          <button id="search-clear" title="지우기" aria-label="검색어 지우기">✕</button>
+        </div>
+
+        <div class="filter-section">
+          <div class="filter-label">종별</div>
+          <div id="type-filters"></div>
+        </div>
+
+        <div class="filter-section">
+          <div class="filter-label">지역</div>
+          <select id="sido-select">
+            <option value="">전체 지역</option>
+          </select>
+        </div>
+
+        <div class="count-bar">
+          <span id="visible-count">-</span>개 기관 표시중
+        </div>
+      </div>
+
+      <div id="results-list" role="list" aria-label="검색결과 목록"></div>
+    </aside>
+
+    <!-- 지도 -->
+    <main id="map-container">
+      <div id="map"></div>
+      <div id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p>전국 병의원 데이터를 불러오는 중...</p>
+      </div>
+    </main>
+
+    <!-- 상세 정보 패널 -->
+    <div id="info-panel" hidden>
+      <button id="info-close" aria-label="정보창 닫기">✕</button>
+      <div id="info-content"></div>
+    </div>
+
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,485 @@
+/* ============================================================
+   Reset & Base
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  color: #202124;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Layout
+   ============================================================ */
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ============================================================
+   Sidebar
+   ============================================================ */
+#sidebar {
+  width: 320px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #e8eaed;
+  flex-shrink: 0;
+}
+
+.sidebar-header h1 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a73e8;
+  margin-bottom: 12px;
+  letter-spacing: -0.3px;
+}
+
+/* 검색창 */
+.search-wrap {
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.search-wrap input {
+  width: 100%;
+  padding: 8px 32px 8px 32px;
+  border: 1.5px solid #dadce0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: #f8f9fa;
+}
+
+.search-wrap input:focus {
+  border-color: #1a73e8;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+}
+
+#search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #80868b;
+  font-size: 13px;
+  padding: 3px 4px;
+  border-radius: 50%;
+  display: none;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+#search-clear:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+#search-clear.visible {
+  display: block;
+}
+
+/* 필터 섹션 */
+.filter-section {
+  margin-bottom: 12px;
+}
+
+.filter-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #80868b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 7px;
+}
+
+/* 종별 필터 버튼 */
+#type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.filter-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1.5px solid #dadce0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  color: #5f6368;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.filter-btn:hover:not(.active) {
+  border-color: #1a73e8;
+  color: #1a73e8;
+  background: #e8f0fe;
+}
+
+.filter-btn.active {
+  color: #fff;
+  border-color: transparent;
+  font-weight: 500;
+}
+
+/* 시도 선택 드롭다운 */
+#sido-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #dadce0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #f8f9fa;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2380868b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+#sido-select:focus {
+  border-color: #1a73e8;
+  background-color: #fff;
+}
+
+/* 카운트 표시 */
+.count-bar {
+  font-size: 12px;
+  color: #80868b;
+  text-align: right;
+  margin-top: 4px;
+}
+
+#visible-count {
+  font-weight: 700;
+  color: #1a73e8;
+}
+
+/* ============================================================
+   Results List
+   ============================================================ */
+#results-list {
+  flex: 1;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+#results-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+#results-list::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 4px;
+}
+
+.result-item {
+  padding: 11px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f3f4;
+  transition: background 0.12s;
+}
+
+.result-item:hover {
+  background: #f8f9fa;
+}
+
+.result-item.active {
+  background: #e8f0fe;
+  border-left: 3px solid #1a73e8;
+  padding-left: 13px;
+}
+
+.result-type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.result-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+  margin-bottom: 3px;
+  word-break: keep-all;
+}
+
+.result-addr {
+  font-size: 12px;
+  color: #80868b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.no-results {
+  text-align: center;
+  padding: 40px 20px;
+  color: #80868b;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.results-limit-notice {
+  text-align: center;
+  padding: 12px;
+  font-size: 11px;
+  color: #80868b;
+  background: #f8f9fa;
+  border-top: 1px solid #e8eaed;
+}
+
+/* ============================================================
+   Map
+   ============================================================ */
+#map-container {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* ============================================================
+   Loading Overlay
+   ============================================================ */
+#loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 50;
+  backdrop-filter: blur(2px);
+}
+
+#loading-overlay p {
+  font-size: 14px;
+  color: #5f6368;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e8eaed;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   Info Panel (상세 정보)
+   ============================================================ */
+#info-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 300px;
+  height: 100%;
+  background: #fff;
+  box-shadow: -2px 0 12px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+  overflow-y: auto;
+  padding: 48px 20px 20px;
+  transition: transform 0.25s ease;
+}
+
+#info-panel[hidden] {
+  display: none;
+}
+
+#info-close {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: #f1f3f4;
+  cursor: pointer;
+  font-size: 14px;
+  color: #5f6368;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  z-index: 21;
+}
+
+#info-close:hover {
+  background: #e8eaed;
+  color: #202124;
+}
+
+.info-type-badge {
+  display: inline-block;
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.info-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #202124;
+  margin-bottom: 18px;
+  line-height: 1.4;
+  word-break: keep-all;
+}
+
+.info-divider {
+  height: 1px;
+  background: #e8eaed;
+  margin: 14px 0;
+}
+
+.info-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 11px;
+  align-items: flex-start;
+}
+
+.info-row-icon {
+  flex-shrink: 0;
+  width: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.info-row-text {
+  flex: 1;
+  font-size: 13px;
+  color: #444;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.info-row-text a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.info-row-text a:hover {
+  text-decoration: underline;
+}
+
+.info-row-label {
+  font-size: 11px;
+  color: #80868b;
+  margin-bottom: 2px;
+}
+
+/* ============================================================
+   Cluster Markers (네이버 지도 MarkerClustering)
+   ============================================================ */
+.cluster-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  transition: transform 0.1s;
+}
+
+.cluster-marker:hover {
+  transform: scale(1.05);
+}
+
+/* ============================================================
+   Responsive (모바일)
+   ============================================================ */
+@media (max-width: 768px) {
+  #app {
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: 100%;
+    height: 45vh;
+    min-width: unset;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+    order: 2;
+  }
+
+  #map-container {
+    flex: none;
+    height: 55vh;
+    order: 1;
+  }
+
+  #info-panel {
+    width: 100%;
+    height: 55vh;
+    top: 0;
+    right: 0;
+    position: absolute;
+  }
+
+  #info-close {
+    position: absolute;
+  }
+}

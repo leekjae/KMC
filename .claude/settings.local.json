@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.data.go.kr)",
+      "Bash(python3 *)",
+      "Bash(curl -s \"https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList?serviceKey=TyVqyGlNolTUhpOIxIQsM6ByhBPKTxegkxeEdpRTdOK%2BdfG4Xe9tAJRNuqh44Bls%2BwMa9%2B7WimkEI%2FgyGWjqNQ%3D%3D&pageNo=1&numOfRows=2&sidoCd=110000&_type=json\")"
+    ]
+  }
+}

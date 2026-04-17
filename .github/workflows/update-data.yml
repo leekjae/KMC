@@ -1,0 +1,44 @@
+name: 병의원 데이터 업데이트
+
+on:
+  schedule:
+    # 매주 월요일 오전 9시 (KST = UTC+9, 즉 UTC 00:00)
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    # 수동 실행 버튼 (GitHub Actions 탭에서 실행 가능)
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 데이터 파일 커밋을 위해 필요
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 의존성 설치
+        run: pip install requests
+
+      - name: 병의원 데이터 수집
+        env:
+          HIRA_API_KEY: ${{ secrets.HIRA_API_KEY }}
+        run: python scripts/fetch_hospitals.py
+
+      - name: 변경사항 커밋 및 푸시
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          # 변경사항이 있을 때만 커밋
+          if git diff --staged --quiet; then
+            echo "변경된 데이터 없음, 커밋 건너뜀"
+          else
+            git commit -m "데이터 업데이트: $(date +'%Y-%m-%d')"
+            git push
+          fi

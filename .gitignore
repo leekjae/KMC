@@ -1,0 +1,17 @@
+# 운영체제
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 에디터
+.vscode/
+.idea/
+
+# 데이터 파일은 추적 (Actions가 생성)
+# data/*.json 은 gitignore 하지 않음
