@@ -52,6 +52,7 @@ const state = {
   map: null,
   allData: [],
   filteredData: [],
+  cachedClusters: {},   // zoom → clusters 미리 계산 캐시
   markers: [],
   activeTypes: new Set(TYPE_GROUPS.map(g => g.label)),
   activeSido: '',
@@ -82,8 +83,12 @@ function initMap() {
     },
   });
 
-  // 지도 이동/줌 변경 시 클러스터 재계산
-  naver.maps.Event.addListener(state.map, 'idle', updateMarkers);
+  // 지도 이동/줌 완료 후 마커 갱신 (디바운스 150ms)
+  let idleTimer = null;
+  naver.maps.Event.addListener(state.map, 'idle', () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(updateMarkers, 150);
+  });
 }
 
 // ============================================================
@@ -243,6 +248,12 @@ function applyFilters() {
   document.getElementById('visible-count').textContent =
     state.filteredData.length.toLocaleString();
 
+  // 줌 5~13 클러스터 미리 계산 (필터 변경 시 1회만 실행)
+  state.cachedClusters = {};
+  for (let z = 5; z <= 13; z++) {
+    state.cachedClusters[z] = buildClusters(state.filteredData, z);
+  }
+
   updateMarkers();
   renderResultsList();
 }
@@ -292,7 +303,19 @@ function updateMarkers() {
   if (state.filteredData.length === 0) return;
 
   const zoom = state.map.getZoom();
-  const clusters = buildClusters(state.filteredData, zoom);
+  let clusters;
+
+  if (zoom >= 14) {
+    // 줌 14 이상: 현재 화면 영역(viewport) 내 개별 마커만 표시
+    const bounds = state.map.getBounds();
+    clusters = state.filteredData
+      .filter(d => d.lat && d.lng && bounds.hasLatLng(new naver.maps.LatLng(d.lat, d.lng)))
+      .slice(0, 500)  // 최대 500개 제한
+      .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
+  } else {
+    // 줌 5~13: 미리 계산된 클러스터 캐시 사용
+    clusters = state.cachedClusters[Math.max(5, Math.min(zoom, 13))] || [];
+  }
 
   clusters.forEach(cluster => {
     const icon = cluster.count === 1
