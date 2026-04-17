@@ -66,47 +66,11 @@ const state = {
 // ============================================================
 // 진입점
 // ============================================================
-(function bootstrap() {
-  const clientId = window.APP_CONFIG && window.APP_CONFIG.NAVER_CLIENT_ID;
-  if (!clientId || clientId === 'YOUR_NAVER_CLIENT_ID_HERE') {
-    showConfigError();
-    return;
-  }
-  loadNaverMapsScript(clientId);
-})();
-
-function showConfigError() {
-  document.getElementById('loading-overlay').innerHTML = `
-    <div style="text-align:center;padding:20px;color:#d32f2f">
-      <div style="font-size:32px;margin-bottom:12px">⚙️</div>
-      <strong>설정이 필요합니다</strong><br><br>
-      <code>js/config.js</code> 파일을 열어<br>
-      <code>NAVER_CLIENT_ID</code>를 입력하세요.
-    </div>
-  `;
-}
-
-function loadNaverMapsScript(clientId) {
-  const script = document.createElement('script');
-  script.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${encodeURIComponent(clientId)}&submodules=MarkerClustering`;
-  script.onload = onNaverMapsReady;
-  script.onerror = () => {
-    document.getElementById('loading-overlay').innerHTML = `
-      <div style="text-align:center;padding:20px;color:#d32f2f">
-        <div style="font-size:32px;margin-bottom:12px">🌐</div>
-        <strong>네이버 지도 API 로드 실패</strong><br><br>
-        Client ID를 확인하고<br>허용 도메인이 설정되어 있는지 확인하세요.
-      </div>
-    `;
-  };
-  document.head.appendChild(script);
-}
-
-function onNaverMapsReady() {
+document.addEventListener('DOMContentLoaded', () => {
   initMap();
   initUI();
   loadAllData();
-}
+});
 
 // ============================================================
 // 지도 초기화
