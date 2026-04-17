@@ -25,15 +25,14 @@ const SIDO_LIST = [
   { code: '390000', name: '제주' },
 ];
 
-// 종별 그룹 (표시색 포함)
+// 종별 그룹 (실제 API clCd 기준)
 const TYPE_GROUPS = [
-  { label: '상급·종합병원', codes: ['01', '11'], color: '#d32f2f' },
-  { label: '병원',          codes: ['21', '28', '29'], color: '#f57c00' },
-  { label: '의원',          codes: ['31'], color: '#388e3c' },
-  { label: '치과',          codes: ['41', '42'], color: '#0288d1' },
-  { label: '한방',          codes: ['81', '92'], color: '#7b1fa2' },
-  { label: '약국',          codes: ['71'], color: '#00796b' },
-  { label: '보건소',        codes: ['61', '62', '63'], color: '#5d4037' },
+  { label: '상급·종합병원', codes: ['01', '11'],             color: '#d32f2f' },
+  { label: '병원',          codes: ['21', '28', '29'],        color: '#f57c00' },
+  { label: '의원',          codes: ['31'],                    color: '#388e3c' },
+  { label: '치과',          codes: ['41', '51'],              color: '#0288d1' },
+  { label: '한방',          codes: ['92', '93'],              color: '#7b1fa2' },
+  { label: '보건소',        codes: ['71', '72', '73', '75'],  color: '#5d4037' },
 ];
 
 // 줌 레벨별 클러스터 격자 크기 (위경도 단위)
