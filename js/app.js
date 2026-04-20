@@ -52,12 +52,15 @@ const state = {
   map: null,
   allData: [],
   filteredData: [],
-  cachedClusters: {},   // zoom → clusters 미리 계산 캐시
+  cachedClusters: {},
   markers: [],
   activeTypes: new Set(TYPE_GROUPS.map(g => g.label)),
   activeSido: '',
   searchText: '',
   selectedId: null,
+  statusFilter: 'open',    // 'open' | 'closed' | 'all'
+  populationData: null,
+  activeView: 'list',      // 'list' | 'population'
 };
 
 // ============================================================
@@ -67,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMap();
   initUI();
   loadAllData();
+  loadPopulationData();
 });
 
 // ============================================================
@@ -101,10 +105,42 @@ function initMap() {
 // UI 초기화
 // ============================================================
 function initUI() {
+  buildStatusFilter();
   buildTypeFilters();
   buildSidoSelect();
   bindSearchEvents();
+  bindViewTabs();
   document.getElementById('info-close').addEventListener('click', closeInfoPanel);
+}
+
+// 영업상태 필터
+function buildStatusFilter() {
+  document.querySelectorAll('#status-filters .status-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#status-filters .status-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.statusFilter = btn.dataset.status;
+      applyFilters();
+    });
+  });
+}
+
+// 목록/인구통계 탭
+function bindViewTabs() {
+  document.querySelectorAll('.view-tab').forEach(tab => {
+    tab.addEventListener('click', () => setActiveView(tab.dataset.view));
+  });
+}
+
+function setActiveView(view) {
+  state.activeView = view;
+  document.querySelectorAll('.view-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === view)
+  );
+  const isList = view === 'list';
+  document.getElementById('results-list').hidden = !isList;
+  document.getElementById('pop-section').hidden = isList;
+  if (!isList) renderPopulationChart();
 }
 
 function buildTypeFilters() {
@@ -151,8 +187,17 @@ function buildSidoSelect() {
   });
   select.addEventListener('change', e => {
     state.activeSido = e.target.value;
+    updateViewTabsVisibility();
     applyFilters();
   });
+}
+
+function updateViewTabsVisibility() {
+  const tabs = document.getElementById('view-tabs');
+  tabs.hidden = !state.activeSido;
+  if (!state.activeSido && state.activeView === 'population') {
+    setActiveView('list');
+  }
 }
 
 function bindSearchEvents() {
@@ -211,6 +256,21 @@ async function loadAllData() {
   }
 }
 
+async function loadPopulationData() {
+  try {
+    const resp = await fetch(`${DATA_BASE_URL}/population.json`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.regions && Object.keys(data.regions).length > 0) {
+      state.populationData = data;
+      // 인구통계 탭이 열려 있으면 갱신
+      if (state.activeView === 'population') renderPopulationChart();
+    }
+  } catch (e) {
+    // 파일 없으면 무시
+  }
+}
+
 function showLoading(show) {
   const el = document.getElementById('loading-overlay');
   el.style.display = show ? 'flex' : 'none';
@@ -241,6 +301,10 @@ function applyFilters() {
   const query = state.searchText.toLowerCase();
 
   state.filteredData = state.allData.filter(item => {
+    // 영업상태 필터
+    if (state.statusFilter === 'open'   &&  item.closed) return false;
+    if (state.statusFilter === 'closed' && !item.closed) return false;
+
     if (!activeTypeCodes.has(item.clCd)) return false;
     if (state.activeSido && item.sidoCd !== state.activeSido) return false;
     if (query) {
@@ -254,18 +318,15 @@ function applyFilters() {
   document.getElementById('visible-count').textContent =
     state.filteredData.length.toLocaleString();
 
-  // 클러스터 캐시 초기화 (줌 레벨 접근 시 그때그때 계산)
   state.cachedClusters = {};
-
   updateMarkers();
   renderResultsList();
 }
 
 // ============================================================
-// 클러스터링 (외부 라이브러리 없이 직접 구현)
+// 클러스터링
 // ============================================================
 function buildClusters(items, zoom) {
-  // 줌 14 이상: 개별 마커 표시
   if (zoom >= 14) {
     return items
       .filter(d => d.lat && d.lng)
@@ -311,28 +372,29 @@ function updateMarkers(zoomChanged) {
   let clusters;
 
   if (zoom >= 14) {
-    // 줌 14 이상: 뷰포트 내 개별 마커만 표시
     clusters = state.filteredData
       .filter(d => d.lat && d.lng && bounds.hasLatLng(new naver.maps.LatLng(d.lat, d.lng)))
       .slice(0, 500)
       .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
   } else {
-    // 줌 5~13: 캐시 확인 후 없으면 계산, 뷰포트로 추가 필터링
     const z = Math.max(5, Math.min(zoom, 13));
     if (!state.cachedClusters[z]) {
       state.cachedClusters[z] = buildClusters(state.filteredData, z);
     }
-    // 뷰포트 밖 클러스터 제거 (렌더링 부하 감소)
     clusters = state.cachedClusters[z].filter(c =>
       bounds.hasLatLng(new naver.maps.LatLng(c.lat, c.lng))
     );
   }
 
-  // 새 마커를 먼저 지도에 추가한 뒤, 이전 마커 제거 → 깜빡임 방지
   const newMarkers = [];
   clusters.forEach(cluster => {
+    const isClosed = cluster.count === 1 && cluster.item.closed;
+    const color = isClosed
+      ? '#9e9e9e'
+      : (getGroupByCode(cluster.item.clCd)?.color || '#666');
+
     const icon = cluster.count === 1
-      ? buildMarkerIcon(getGroupByCode(cluster.item.clCd)?.color || '#666')
+      ? buildMarkerIcon(color, isClosed)
       : buildClusterIcon(cluster.count);
 
     const marker = new naver.maps.Marker({
@@ -353,18 +415,22 @@ function updateMarkers(zoomChanged) {
     newMarkers.push(marker);
   });
 
-  // 이전 마커는 새 마커 배치 완료 후 제거
   const oldMarkers = state.markers;
   state.markers = newMarkers;
   oldMarkers.forEach(m => m.setMap(null));
 }
 
-function buildMarkerIcon(color) {
+function buildMarkerIcon(color, isClosed = false) {
+  const innerSvg = isClosed
+    ? `<line x1="7.5" y1="7.5" x2="14.5" y2="14.5" stroke="white" stroke-width="2" stroke-linecap="round"/>
+       <line x1="14.5" y1="7.5" x2="7.5" y2="14.5" stroke="white" stroke-width="2" stroke-linecap="round"/>`
+    : `<circle cx="11" cy="11" r="4.5" fill="white" opacity="0.9"/>`;
+
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="28" viewBox="0 0 22 28">`,
     `<path d="M11 0C4.925 0 0 4.925 0 11c0 8.25 11 17 11 17s11-8.75 11-17C22 4.925 17.075 0 11 0z"`,
     ` fill="${color}" stroke="white" stroke-width="1.5"/>`,
-    `<circle cx="11" cy="11" r="4.5" fill="white" opacity="0.9"/>`,
+    innerSvg,
     `</svg>`,
   ].join('');
 
@@ -395,7 +461,10 @@ function renderResultsList() {
   const list = document.getElementById('results-list');
 
   if (state.filteredData.length === 0) {
-    list.innerHTML = '<div class="no-results">검색 결과가 없습니다.<br>검색어나 필터를 변경해보세요.</div>';
+    const msg = state.statusFilter === 'closed'
+      ? '폐업 데이터가 없습니다.<br>현재 영업중인 기관만 수집됩니다.'
+      : '검색 결과가 없습니다.<br>검색어나 필터를 변경해보세요.';
+    list.innerHTML = `<div class="no-results">${msg}</div>`;
     return;
   }
 
@@ -404,11 +473,12 @@ function renderResultsList() {
 
   list.innerHTML = displayItems.map(item => {
     const group = getGroupByCode(item.clCd);
-    const color = group ? group.color : '#888';
+    const color = item.closed ? '#9e9e9e' : (group ? group.color : '#888');
     const isActive = item.id === state.selectedId;
+    const closedBadge = item.closed ? '<span class="closed-badge">폐업</span>' : '';
     return `
-      <div class="result-item${isActive ? ' active' : ''}" role="listitem" data-id="${escapeHtml(item.id)}">
-        <span class="result-type-badge" style="background:${color}20;color:${color}">${escapeHtml(item.clCdNm || '')}</span>
+      <div class="result-item${isActive ? ' active' : ''}${item.closed ? ' is-closed' : ''}" role="listitem" data-id="${escapeHtml(item.id)}">
+        <span class="result-type-badge" style="background:${color}20;color:${color}">${escapeHtml(item.clCdNm || '')}</span>${closedBadge}
         <div class="result-name">${escapeHtml(item.name)}</div>
         <div class="result-addr">${escapeHtml(item.addr || '')}</div>
       </div>
@@ -437,7 +507,6 @@ function renderResultsList() {
 function selectFacility(item) {
   state.selectedId = item.id;
 
-  // 좌표가 있을 때만 지도 이동
   if (item.lat && item.lng) {
     state.map.setCenter(new naver.maps.LatLng(item.lat, item.lng));
     if (state.map.getZoom() < 15) state.map.setZoom(15);
@@ -460,12 +529,13 @@ function highlightListItem(id) {
 // ============================================================
 function showInfoPanel(item) {
   const group = getGroupByCode(item.clCd);
-  const color = group ? group.color : '#666';
+  const color = item.closed ? '#9e9e9e' : (group ? group.color : '#666');
 
   const rows = buildInfoRows(item);
 
   document.getElementById('info-content').innerHTML = `
     <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '병의원')}</div>
+    ${item.closed ? '<div style="margin:4px 0 10px;font-size:13px;color:#d32f2f;font-weight:500">🚫 폐업' + (item.closedDate ? ` (${formatDate(item.closedDate)})` : '') + '</div>' : ''}
     <div class="info-name">${escapeHtml(item.name)}</div>
     <div class="info-divider"></div>
     ${rows.map(r => `
@@ -511,6 +581,64 @@ function closeInfoPanel() {
   document.getElementById('info-panel').setAttribute('hidden', '');
   state.selectedId = null;
   document.querySelectorAll('.result-item').forEach(el => el.classList.remove('active'));
+}
+
+// ============================================================
+// 인구통계 차트
+// ============================================================
+function renderPopulationChart() {
+  const panel = document.getElementById('pop-section');
+
+  if (!state.populationData || !state.populationData.regions?.[state.activeSido]) {
+    const hasAnyData = state.populationData && Object.keys(state.populationData.regions || {}).length > 0;
+    panel.innerHTML = `
+      <div class="pop-no-data">
+        ${hasAnyData
+          ? '선택한 지역의 인구통계 데이터가 없습니다.'
+          : `인구통계 데이터가 없습니다.<br><br>아래 명령어로 수집하세요:<code>MOIS_API_KEY=발급키<br>python scripts/fetch_population.py</code>`
+        }
+      </div>
+    `;
+    return;
+  }
+
+  const data = state.populationData.regions[state.activeSido];
+  const maxVal = Math.max(...data.ageGroups.flatMap(g => [g.male, g.female]), 1);
+  const MAX_BAR_W = 110;
+
+  const rows = data.ageGroups.map(g => {
+    const mW = Math.max(2, Math.round((g.male / maxVal) * MAX_BAR_W));
+    const fW = Math.max(2, Math.round((g.female / maxVal) * MAX_BAR_W));
+    return `
+      <div class="pop-row">
+        <div class="pop-age-label">${escapeHtml(g.label)}</div>
+        <div class="pop-male-side">
+          <div class="pop-bar-male" style="width:${mW}px" title="남 ${g.male.toLocaleString()}명"></div>
+        </div>
+        <div class="pop-center-line"></div>
+        <div class="pop-female-side">
+          <div class="pop-bar-female" style="width:${fW}px" title="여 ${g.female.toLocaleString()}명"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="pop-header">
+      <div class="pop-region-name">${escapeHtml(data.name)}</div>
+      <div class="pop-total-count">총 ${data.total.toLocaleString()}명</div>
+      <div class="pop-gender-row">
+        <span class="pop-male-count">남 ${data.male.toLocaleString()}명</span>
+        <span class="pop-female-count">여 ${data.female.toLocaleString()}명</span>
+      </div>
+    </div>
+    <div class="pop-chart-area">${rows}</div>
+    <div class="pop-legend-row">
+      <span><span class="pop-dot" style="background:#1a73e8"></span>남성</span>
+      <span><span class="pop-dot" style="background:#e91e63"></span>여성</span>
+    </div>
+    ${state.populationData.updated ? `<div class="pop-updated">기준: ${state.populationData.updated}</div>` : ''}
+  `;
 }
 
 // ============================================================

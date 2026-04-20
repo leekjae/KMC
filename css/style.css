@@ -450,6 +450,224 @@ body {
 }
 
 /* ============================================================
+   Status Filter (영업상태)
+   ============================================================ */
+#status-filters {
+  display: flex;
+  gap: 5px;
+}
+
+.status-btn {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1.5px solid #dadce0;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  color: #5f6368;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.status-btn:hover:not(.active) {
+  border-color: #1a73e8;
+  color: #1a73e8;
+  background: #e8f0fe;
+}
+
+.status-btn.active[data-status="open"]   { background: #1a73e8; border-color: #1a73e8; color: #fff; font-weight: 500; }
+.status-btn.active[data-status="closed"] { background: #d32f2f; border-color: #d32f2f; color: #fff; font-weight: 500; }
+.status-btn.active[data-status="all"]    { background: #5f6368; border-color: #5f6368; color: #fff; font-weight: 500; }
+
+/* Closed hospital styling */
+.closed-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #fce8e6;
+  color: #d32f2f;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.result-item.is-closed .result-name {
+  color: #9e9e9e;
+  text-decoration: line-through;
+}
+
+/* ============================================================
+   View Tabs (목록 / 인구통계)
+   ============================================================ */
+#view-tabs {
+  display: flex;
+  margin-top: 8px;
+  border-bottom: 2px solid #e8eaed;
+}
+
+.view-tab {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  color: #5f6368;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.15s;
+}
+
+.view-tab.active {
+  color: #1a73e8;
+  border-bottom-color: #1a73e8;
+  font-weight: 600;
+}
+
+.view-tab:hover:not(.active) {
+  background: #f8f9fa;
+  color: #202124;
+}
+
+/* ============================================================
+   Population Section (인구통계)
+   ============================================================ */
+#pop-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.pop-header {
+  margin-bottom: 14px;
+}
+
+.pop-region-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #202124;
+}
+
+.pop-total-count {
+  font-size: 12px;
+  color: #5f6368;
+  margin-top: 3px;
+}
+
+.pop-gender-row {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.pop-male-count   { color: #1a73e8; }
+.pop-female-count { color: #e91e63; }
+
+.pop-chart-area {
+  margin-top: 4px;
+}
+
+.pop-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 5px;
+  gap: 3px;
+}
+
+.pop-age-label {
+  width: 34px;
+  font-size: 10px;
+  color: #80868b;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.pop-male-side {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.pop-female-side {
+  flex: 1;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.pop-center-line {
+  width: 1px;
+  height: 16px;
+  background: #dadce0;
+  flex-shrink: 0;
+}
+
+.pop-bar-male {
+  height: 14px;
+  background: #1a73e8;
+  border-radius: 3px 0 0 3px;
+  transition: width 0.4s ease;
+  cursor: default;
+}
+
+.pop-bar-female {
+  height: 14px;
+  background: #e91e63;
+  border-radius: 0 3px 3px 0;
+  transition: width 0.4s ease;
+  cursor: default;
+}
+
+.pop-legend-row {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.pop-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
+.pop-updated {
+  font-size: 10px;
+  color: #bbb;
+  margin-top: 8px;
+  text-align: right;
+}
+
+.pop-no-data {
+  text-align: center;
+  padding: 36px 16px;
+  color: #80868b;
+  font-size: 13px;
+  line-height: 2;
+}
+
+.pop-no-data code {
+  display: block;
+  margin-top: 10px;
+  font-size: 11px;
+  background: #f8f9fa;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: #333;
+  text-align: left;
+  word-break: break-all;
+  line-height: 1.8;
+}
+
+/* ============================================================
    Responsive (모바일)
    ============================================================ */
 @media (max-width: 768px) {

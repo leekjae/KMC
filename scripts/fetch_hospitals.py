@@ -115,7 +115,7 @@ def normalize(item: dict) -> dict:
     raw_id = str(item.get('ykiho', ''))
     short_id = hashlib.md5(raw_id.encode()).hexdigest()[:12] if raw_id else ''
 
-    return {
+    result = {
         'id':        short_id,
         'name':      str(item.get('yadmNm', '')).strip(),
         'clCd':      str(item.get('clCd', '')),
@@ -132,6 +132,13 @@ def normalize(item: dict) -> dict:
         'lat':       lat,
         'lng':       lng,
     }
+    # 폐업 여부 (API가 cloYn 필드를 제공하는 경우에만 추가)
+    if item.get('cloYn') in ('Y', 'y', True, 1):
+        result['closed'] = True
+        clo_date = str(item.get('cloDate', '') or '').strip()
+        if clo_date:
+            result['closedDate'] = clo_date
+    return result
 
 
 def _to_float(value) -> float | None:

@@ -24,6 +24,15 @@
         </div>
 
         <div class="filter-section">
+          <div class="filter-label">영업상태</div>
+          <div id="status-filters">
+            <button class="status-btn active" data-status="open">영업중</button>
+            <button class="status-btn" data-status="closed">폐업</button>
+            <button class="status-btn" data-status="all">전체</button>
+          </div>
+        </div>
+
+        <div class="filter-section">
           <div class="filter-label">종별</div>
           <div id="type-filters"></div>
         </div>
@@ -38,9 +47,15 @@
         <div class="count-bar">
           <span id="visible-count">-</span>개 기관 표시중
         </div>
+
+        <div id="view-tabs" hidden>
+          <button class="view-tab active" data-view="list">목록</button>
+          <button class="view-tab" data-view="population">인구통계</button>
+        </div>
       </div>
 
       <div id="results-list" role="list" aria-label="검색결과 목록"></div>
+      <div id="pop-section" hidden></div>
     </aside>
 
     <!-- 지도 -->
