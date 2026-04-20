@@ -13,7 +13,7 @@ const SIDO_LIST = [
   { code: '240000', name: '광주' },
   { code: '250000', name: '대전' },
   { code: '260000', name: '울산' },
-  { code: '290000', name: '세종' },
+  { code: '410000', name: '세종' },
   { code: '310000', name: '경기' },
   { code: '320000', name: '강원' },
   { code: '330000', name: '충북' },
@@ -83,11 +83,17 @@ function initMap() {
     },
   });
 
-  // 지도 이동/줌 완료 후 마커 갱신 (디바운스 150ms)
+  // 지도 이동/줌 완료 후 마커 갱신 (디바운스 250ms)
   let idleTimer = null;
+  let lastZoom = state.map.getZoom();
   naver.maps.Event.addListener(state.map, 'idle', () => {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(updateMarkers, 150);
+    idleTimer = setTimeout(() => {
+      const currentZoom = state.map.getZoom();
+      const zoomChanged = currentZoom !== lastZoom;
+      lastZoom = currentZoom;
+      updateMarkers(zoomChanged);
+    }, 250);
   });
 }
 
@@ -293,31 +299,37 @@ function buildClusters(items, zoom) {
 // ============================================================
 // 마커 업데이트
 // ============================================================
-function updateMarkers() {
-  state.markers.forEach(m => m.setMap(null));
-  state.markers = [];
-
-  if (state.filteredData.length === 0) return;
+function updateMarkers(zoomChanged) {
+  if (state.filteredData.length === 0) {
+    state.markers.forEach(m => m.setMap(null));
+    state.markers = [];
+    return;
+  }
 
   const zoom = state.map.getZoom();
+  const bounds = state.map.getBounds();
   let clusters;
 
   if (zoom >= 14) {
-    // 줌 14 이상: 현재 화면 영역(viewport) 내 개별 마커만 표시
-    const bounds = state.map.getBounds();
+    // 줌 14 이상: 뷰포트 내 개별 마커만 표시
     clusters = state.filteredData
       .filter(d => d.lat && d.lng && bounds.hasLatLng(new naver.maps.LatLng(d.lat, d.lng)))
-      .slice(0, 500)  // 최대 500개 제한
+      .slice(0, 500)
       .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
   } else {
-    // 줌 5~13: 캐시 확인 후 없으면 그때 계산
+    // 줌 5~13: 캐시 확인 후 없으면 계산, 뷰포트로 추가 필터링
     const z = Math.max(5, Math.min(zoom, 13));
     if (!state.cachedClusters[z]) {
       state.cachedClusters[z] = buildClusters(state.filteredData, z);
     }
-    clusters = state.cachedClusters[z];
+    // 뷰포트 밖 클러스터 제거 (렌더링 부하 감소)
+    clusters = state.cachedClusters[z].filter(c =>
+      bounds.hasLatLng(new naver.maps.LatLng(c.lat, c.lng))
+    );
   }
 
+  // 새 마커를 먼저 지도에 추가한 뒤, 이전 마커 제거 → 깜빡임 방지
+  const newMarkers = [];
   clusters.forEach(cluster => {
     const icon = cluster.count === 1
       ? buildMarkerIcon(getGroupByCode(cluster.item.clCd)?.color || '#666')
@@ -338,9 +350,13 @@ function updateMarkers() {
         state.map.setZoom(zoom + 2);
       });
     }
-
-    state.markers.push(marker);
+    newMarkers.push(marker);
   });
+
+  // 이전 마커는 새 마커 배치 완료 후 제거
+  const oldMarkers = state.markers;
+  state.markers = newMarkers;
+  oldMarkers.forEach(m => m.setMap(null));
 }
 
 function buildMarkerIcon(color) {

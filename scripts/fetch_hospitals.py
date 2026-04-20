@@ -33,7 +33,7 @@ SIDO_LIST = [
     {'code': '240000', 'name': '광주'},
     {'code': '250000', 'name': '대전'},
     {'code': '260000', 'name': '울산'},
-    {'code': '290000', 'name': '세종'},
+    {'code': '410000', 'name': '세종'},
     {'code': '310000', 'name': '경기'},
     {'code': '320000', 'name': '강원'},
     {'code': '330000', 'name': '충북'},
@@ -70,12 +70,15 @@ def fetch_page(sido_code: str, page_no: int) -> tuple[list, int]:
             if result_code not in ('00', ''):
                 result_msg = data.get('response', {}).get('header', {}).get('resultMsg', '')
                 print(f'    API 오류: {result_code} {result_msg}')
+                print(f'    응답 전체: {json.dumps(data, ensure_ascii=False)[:500]}')
                 return [], 0
 
             total = int(body.get('totalCount', 0))
             items_raw = body.get('items', {})
 
             if not items_raw or total == 0:
+                if page_no == 1:
+                    print(f'    totalCount={total}, items={items_raw!r} (응답 원문 일부: {str(body)[:300]})')
                 return [], total
 
             item_list = items_raw.get('item', [])
@@ -175,22 +178,32 @@ def fetch_sido(sido: dict) -> list:
 def main():
     if not API_KEY:
         print('오류: HIRA_API_KEY 환경변수가 설정되지 않았습니다.')
-        print('  사용법: HIRA_API_KEY=your_key python scripts/fetch_hospitals.py')
+        print('  사용법: HIRA_API_KEY=your_key python scripts/fetch_hospitals.py [시도명]')
+        print('  예시:  HIRA_API_KEY=your_key python scripts/fetch_hospitals.py 세종')
         sys.exit(1)
+
+    # 특정 시도만 수집 (예: python fetch_hospitals.py 세종)
+    target_name = sys.argv[1] if len(sys.argv) > 1 else None
+    target_list = SIDO_LIST
+    if target_name:
+        target_list = [s for s in SIDO_LIST if s['name'] == target_name]
+        if not target_list:
+            print(f'오류: "{target_name}"은 유효한 시도명이 아닙니다.')
+            print('  가능한 값:', ', '.join(s['name'] for s in SIDO_LIST))
+            sys.exit(1)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     print(f'저장 경로: {DATA_DIR.resolve()}')
 
     total_count = 0
-    for sido in SIDO_LIST:
+    for sido in target_list:
         data = fetch_sido(sido)
         output_path = DATA_DIR / f'hospitals_{sido["code"]}.json'
         with open(output_path, 'w', encoding='utf-8') as f:
-            # separators로 공백 제거 → 파일 크기 최소화
             json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
         total_count += len(data)
 
-    print(f'\n✅ 수집 완료: 전국 총 {total_count:,}건')
+    print(f'\n✅ 수집 완료: 총 {total_count:,}건')
 
 
 if __name__ == '__main__':
