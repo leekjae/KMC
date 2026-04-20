@@ -602,42 +602,55 @@ function renderPopulationChart() {
     return;
   }
 
-  const data = state.populationData.regions[state.activeSido];
-  const maxVal = Math.max(...data.ageGroups.flatMap(g => [g.male, g.female]), 1);
-  const MAX_BAR_W = 110;
-
-  const rows = data.ageGroups.map(g => {
-    const mW = Math.max(2, Math.round((g.male / maxVal) * MAX_BAR_W));
-    const fW = Math.max(2, Math.round((g.female / maxVal) * MAX_BAR_W));
-    return `
-      <div class="pop-row">
-        <div class="pop-age-label">${escapeHtml(g.label)}</div>
-        <div class="pop-male-side">
-          <div class="pop-bar-male" style="width:${mW}px" title="남 ${g.male.toLocaleString()}명"></div>
-        </div>
-        <div class="pop-center-line"></div>
-        <div class="pop-female-side">
-          <div class="pop-bar-female" style="width:${fW}px" title="여 ${g.female.toLocaleString()}명"></div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  const d = state.populationData.regions[state.activeSido];
+  const malePct  = d.total > 0 ? (d.male   / d.total * 100) : 50;
+  const femlPct  = d.total > 0 ? (d.female / d.total * 100) : 50;
+  const maleW    = Math.round(malePct * 2.2);   // 100% → 220px
+  const femlW    = Math.round(femlPct * 2.2);
+  const ym       = state.populationData.updated || '';
+  const ymLabel  = ym.length === 6 ? `${ym.slice(0,4)}년 ${ym.slice(4)}월` : ym;
 
   panel.innerHTML = `
     <div class="pop-header">
-      <div class="pop-region-name">${escapeHtml(data.name)}</div>
-      <div class="pop-total-count">총 ${data.total.toLocaleString()}명</div>
-      <div class="pop-gender-row">
-        <span class="pop-male-count">남 ${data.male.toLocaleString()}명</span>
-        <span class="pop-female-count">여 ${data.female.toLocaleString()}명</span>
+      <div class="pop-region-name">${escapeHtml(d.name)}</div>
+      <div class="pop-total-count">총 <strong>${d.total.toLocaleString()}</strong>명</div>
+    </div>
+
+    <div class="pop-gender-section">
+      <div class="pop-gender-row-item">
+        <div class="pop-gender-label male-label">남성</div>
+        <div class="pop-gender-bar-wrap">
+          <div class="pop-gender-bar male-bar" style="width:${maleW}px"></div>
+          <div class="pop-gender-val">${d.male.toLocaleString()}명 <span class="pop-pct">${malePct.toFixed(1)}%</span></div>
+        </div>
+      </div>
+      <div class="pop-gender-row-item">
+        <div class="pop-gender-label female-label">여성</div>
+        <div class="pop-gender-bar-wrap">
+          <div class="pop-gender-bar female-bar" style="width:${femlW}px"></div>
+          <div class="pop-gender-val">${d.female.toLocaleString()}명 <span class="pop-pct">${femlPct.toFixed(1)}%</span></div>
+        </div>
       </div>
     </div>
-    <div class="pop-chart-area">${rows}</div>
-    <div class="pop-legend-row">
-      <span><span class="pop-dot" style="background:#1a73e8"></span>남성</span>
-      <span><span class="pop-dot" style="background:#e91e63"></span>여성</span>
+
+    <div class="pop-divider-line-h"></div>
+
+    <div class="pop-stats-grid">
+      <div class="pop-stat-item">
+        <div class="pop-stat-label">세대수</div>
+        <div class="pop-stat-value">${d.households.toLocaleString()}<span class="pop-stat-unit">세대</span></div>
+      </div>
+      <div class="pop-stat-item">
+        <div class="pop-stat-label">세대당 인구</div>
+        <div class="pop-stat-value">${d.hhSize}<span class="pop-stat-unit">명</span></div>
+      </div>
+      <div class="pop-stat-item">
+        <div class="pop-stat-label">성비</div>
+        <div class="pop-stat-value">${d.mfRatio}<span class="pop-stat-unit">남/여×100</span></div>
+      </div>
     </div>
-    ${state.populationData.updated ? `<div class="pop-updated">기준: ${state.populationData.updated}</div>` : ''}
+
+    <div class="pop-updated">기준: ${ymLabel} · 행정안전부 주민등록 인구통계</div>
   `;
 }
 

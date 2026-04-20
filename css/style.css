@@ -568,75 +568,97 @@ body {
 .pop-male-count   { color: #1a73e8; }
 .pop-female-count { color: #e91e63; }
 
-.pop-chart-area {
-  margin-top: 4px;
+/* 성별 바 차트 */
+.pop-gender-section {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.pop-row {
+.pop-gender-row-item {
   display: flex;
   align-items: center;
-  margin-bottom: 5px;
-  gap: 3px;
+  gap: 8px;
 }
 
-.pop-age-label {
-  width: 34px;
-  font-size: 10px;
-  color: #80868b;
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.pop-male-side {
-  flex: 1;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.pop-female-side {
-  flex: 1;
-  display: flex;
-  justify-content: flex-start;
-}
-
-.pop-center-line {
-  width: 1px;
-  height: 16px;
-  background: #dadce0;
-  flex-shrink: 0;
-}
-
-.pop-bar-male {
-  height: 14px;
-  background: #1a73e8;
-  border-radius: 3px 0 0 3px;
-  transition: width 0.4s ease;
-  cursor: default;
-}
-
-.pop-bar-female {
-  height: 14px;
-  background: #e91e63;
-  border-radius: 0 3px 3px 0;
-  transition: width 0.4s ease;
-  cursor: default;
-}
-
-.pop-legend-row {
-  display: flex;
-  gap: 14px;
-  margin-top: 10px;
+.pop-gender-label {
+  width: 28px;
   font-size: 11px;
-  color: #5f6368;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
-.pop-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  margin-right: 3px;
-  vertical-align: middle;
+.male-label   { color: #1a73e8; }
+.female-label { color: #e91e63; }
+
+.pop-gender-bar-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pop-gender-bar {
+  height: 18px;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+
+.male-bar   { background: #1a73e8; }
+.female-bar { background: #e91e63; }
+
+.pop-gender-val {
+  font-size: 11px;
+  color: #444;
+  white-space: nowrap;
+}
+
+.pop-pct {
+  color: #80868b;
+  margin-left: 3px;
+}
+
+/* 구분선 */
+.pop-divider-line-h {
+  height: 1px;
+  background: #e8eaed;
+  margin: 14px 0;
+}
+
+/* 통계 그리드 */
+.pop-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pop-stat-item {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.pop-stat-label {
+  font-size: 9px;
+  color: #80868b;
+  margin-bottom: 4px;
+}
+
+.pop-stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #202124;
+}
+
+.pop-stat-unit {
+  font-size: 9px;
+  font-weight: 400;
+  color: #80868b;
+  margin-left: 1px;
 }
 
 .pop-updated {

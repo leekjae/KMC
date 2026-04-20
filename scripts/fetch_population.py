@@ -1,6 +1,7 @@
 """
-행정동별 주민등록 인구 및 세대현황 수집 스크립트
-행정안전부 API (data.go.kr 서비스ID: 15108065)
+법정동별 주민등록 인구 및 세대현황 수집 스크립트
+행정안전부 API (data.go.kr 서비스ID: 15108071)
+엔드포인트: https://apis.data.go.kr/1741000/stdgPpltnHhStus/selectStdgPpltnHhStus
 
 사용법:
   MOIS_API_KEY=디코딩키 python scripts/fetch_population.py
@@ -12,7 +13,6 @@ GitHub Actions: 저장소 Secrets에 MOIS_API_KEY 등록
 import requests
 import json
 import os
-import time
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -29,144 +29,58 @@ if _env_path.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 API_KEY  = os.environ.get('MOIS_API_KEY', '').strip()
-BASE_URL = 'https://apis.data.go.kr/1741000/admmPpltnHhStus/selectAdmmPpltnHhStus'
+BASE_URL = 'https://apis.data.go.kr/1741000/stdgPpltnHhStus/selectStdgPpltnHhStus'
 DATA_DIR = Path(__file__).parent.parent / 'data'
 
-# HIRA sidoCd → 행정안전부 시도코드 매핑
-SIDO_MAP = [
-    {'sidoCd': '110000', 'name': '서울',   'ctpvCd': '11'},
-    {'sidoCd': '210000', 'name': '부산',   'ctpvCd': '26'},
-    {'sidoCd': '220000', 'name': '대구',   'ctpvCd': '27'},
-    {'sidoCd': '230000', 'name': '인천',   'ctpvCd': '28'},
-    {'sidoCd': '240000', 'name': '광주',   'ctpvCd': '29'},
-    {'sidoCd': '250000', 'name': '대전',   'ctpvCd': '30'},
-    {'sidoCd': '260000', 'name': '울산',   'ctpvCd': '31'},
-    {'sidoCd': '410000', 'name': '세종',   'ctpvCd': '36'},
-    {'sidoCd': '310000', 'name': '경기',   'ctpvCd': '41'},
-    {'sidoCd': '320000', 'name': '강원',   'ctpvCd': '42'},
-    {'sidoCd': '330000', 'name': '충북',   'ctpvCd': '43'},
-    {'sidoCd': '340000', 'name': '충남',   'ctpvCd': '44'},
-    {'sidoCd': '350000', 'name': '전북',   'ctpvCd': '45'},
-    {'sidoCd': '360000', 'name': '전남',   'ctpvCd': '46'},
-    {'sidoCd': '370000', 'name': '경북',   'ctpvCd': '47'},
-    {'sidoCd': '380000', 'name': '경남',   'ctpvCd': '48'},
-    {'sidoCd': '390000', 'name': '제주',   'ctpvCd': '50'},
-]
-
-AGE_GROUP_LABELS = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']
-
-
-def age_to_group(age_str: str) -> str | None:
-    s = str(age_str).strip().replace('세 이상', '').replace('세', '').replace(' ', '')
-    try:
-        age = int(s.split('-')[0].split('~')[0])
-        return '80+' if age >= 80 else f'{(age // 10) * 10}-{(age // 10) * 10 + 9}'
-    except (ValueError, IndexError):
-        return None
+# 법정동 시도코드(10자리) → HIRA sidoCd(6자리) 매핑
+# 출처: KIKcd_B.20260325.xlsx (행정안전부 법정동코드 목록)
+STDG_TO_HIRA = {
+    '1100000000': '110000',  # 서울특별시
+    '2600000000': '210000',  # 부산광역시
+    '2700000000': '220000',  # 대구광역시
+    '2800000000': '230000',  # 인천광역시
+    '2900000000': '240000',  # 광주광역시
+    '3000000000': '250000',  # 대전광역시
+    '3100000000': '260000',  # 울산광역시
+    '3600000000': '410000',  # 세종특별자치시
+    '4100000000': '310000',  # 경기도
+    '5100000000': '320000',  # 강원특별자치도
+    '4300000000': '330000',  # 충청북도
+    '4400000000': '340000',  # 충청남도
+    '5200000000': '350000',  # 전북특별자치도
+    '4600000000': '360000',  # 전라남도
+    '4700000000': '370000',  # 경상북도
+    '4800000000': '380000',  # 경상남도
+    '5000000000': '390000',  # 제주특별자치도
+}
 
 
-def _get_field(item, *names, default=0):
-    for name in names:
-        v = item.get(name)
-        if v is not None:
-            try:
-                return int(str(v).replace(',', ''))
-            except (ValueError, TypeError):
-                pass
-    return default
-
-
-def fetch_sido(sido: dict, stdr_ym: str) -> dict | None:
-    """시도 전체 행정동 데이터를 수집해서 집계"""
-    all_items = []
-    page = 1
-
-    while True:
-        params = {
-            'serviceKey': API_KEY,
-            'pageNo': page,
-            'numOfRows': 500,
-            'stdrYm': stdr_ym,
-            'ctpvCd': sido['ctpvCd'],
-            '_type': 'json',
-        }
-        try:
-            resp = requests.get(BASE_URL, params=params, timeout=30)
-            resp.raise_for_status()
-
-            ct = resp.headers.get('Content-Type', '')
-            if 'xml' in ct or resp.text.strip().startswith('<'):
-                # XML 응답 처리
-                import xml.etree.ElementTree as ET
-                root = ET.fromstring(resp.text)
-                rc = root.findtext('.//resultCode', '')
-                if rc != '00':
-                    msg = root.findtext('.//resultMsg', '')
-                    print(f'  API 오류 [{rc}]: {msg}')
-                    return None
-                total = int(root.findtext('.//totalCount', '0'))
-                items = [
-                    {child.tag: child.text for child in item}
-                    for item in root.findall('.//item')
-                ]
-            else:
-                data  = resp.json()
-                body  = data.get('response', {}).get('body', {})
-                rc    = data.get('response', {}).get('header', {}).get('resultCode', '')
-                if rc not in ('00', '', '0000'):
-                    msg = data.get('response', {}).get('header', {}).get('resultMsg', '')
-                    print(f'  API 오류 [{rc}]: {msg}')
-                    return None
-                total = int(body.get('totalCount', 0))
-                raw   = body.get('items') or {}
-                items = raw.get('item', []) if raw else []
-                if isinstance(items, dict):
-                    items = [items]
-
-            if not items:
-                break
-            all_items.extend(items)
-            if len(all_items) >= total:
-                break
-            page += 1
-            time.sleep(0.1)
-
-        except requests.RequestException as e:
-            print(f'  요청 오류: {e}')
-            return None
-
-    if not all_items:
-        return None
-
-    # 행정동 데이터 집계 → 시도 전체 합산
-    # 응답 필드명이 다양할 수 있어 여러 이름을 시도
-    total_male = total_female = 0
-    age_buckets = {lbl: {'male': 0, 'female': 0} for lbl in AGE_GROUP_LABELS}
-
-    for item in all_items:
-        male   = _get_field(item, 'maleCount', 'male', 'manlCo', 'mnPpltn', 'mnCnt')
-        female = _get_field(item, 'femaleCount', 'female', 'womanCo', 'wmPpltn', 'wmCnt')
-        total_male   += male
-        total_female += female
-
-        age_str = str(item.get('ageGroup') or item.get('ageCd') or item.get('age') or '')
-        grp = age_to_group(age_str)
-        if grp and grp in age_buckets:
-            age_buckets[grp]['male']   += male
-            age_buckets[grp]['female'] += female
-
-    age_groups = [
-        {'label': lbl, 'male': age_buckets[lbl]['male'], 'female': age_buckets[lbl]['female']}
-        for lbl in AGE_GROUP_LABELS
-    ]
-
-    return {
-        'name':      sido['name'],
-        'total':     total_male + total_female,
-        'male':      total_male,
-        'female':    total_female,
-        'ageGroups': age_groups,
+def fetch_all_sido(ym: str) -> dict:
+    """lv=1로 한 번 호출하면 전체 17개 시도 데이터가 반환됨"""
+    params = {
+        'serviceKey': API_KEY,
+        'stdgCd':     '1100000000',   # 아무 시도 코드나 OK, lv=1이면 전체 반환
+        'srchFrYm':   ym,
+        'srchToYm':   ym,
+        'lv':         '1',            # 시도 수준 집계
+        'regSeCd':    '1',            # 전체 (거주자+거주불명+재외국민)
+        'type':       'json',
+        'numOfRows':  '20',
+        'pageNo':     '1',
     }
+    resp = requests.get(BASE_URL, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    rc  = data.get('Response', {}).get('head', {}).get('resultCode', '')
+    msg = data.get('Response', {}).get('head', {}).get('resultMsg', '')
+    if rc not in ('0', '00', '0000'):
+        raise RuntimeError(f'API 오류 [{rc}]: {msg}')
+
+    items = data['Response']['items']['item']
+    if isinstance(items, dict):
+        items = [items]
+    return items
 
 
 def main():
@@ -176,29 +90,54 @@ def main():
         print('  MOIS_API_KEY=디코딩키 python scripts/fetch_population.py 로 실행하세요.')
         sys.exit(1)
 
-    now    = datetime.now()
-    month  = now.month - 1 if now.month > 1 else 12
-    year   = now.year  if now.month > 1 else now.year - 1
-    stdr_ym = f'{year}{month:02d}'
-    print(f'기준: {year}년 {month}월 (stdrYm={stdr_ym})\n')
+    # 최근 확정 월: 전월 사용 (당월은 미확정)
+    now   = datetime.now()
+    month = now.month - 1 if now.month > 1 else 12
+    year  = now.year  if now.month > 1 else now.year - 1
+    ym    = f'{year}{month:02d}'
+    print(f'기준: {year}년 {month}월 (ym={ym})\n')
+
+    print('전체 시도 데이터 수집 중...', flush=True)
+    try:
+        items = fetch_all_sido(ym)
+    except Exception as e:
+        print(f'오류: {e}')
+        sys.exit(1)
 
     regions = {}
-    for sido in SIDO_MAP:
-        print(f'[{sido["name"]}] 수집 중...', end=' ', flush=True)
-        data = fetch_sido(sido, stdr_ym)
-        if data:
-            regions[sido['sidoCd']] = data
-            print(f'총 {data["total"]:,}명')
-        else:
-            print('데이터 없음')
-        time.sleep(0.3)
+    for it in items:
+        stdg_cd = str(it.get('stdgCd', ''))
+        hira_cd = STDG_TO_HIRA.get(stdg_cd)
+        if not hira_cd:
+            print(f'  매핑 없음: stdgCd={stdg_cd}')
+            continue
+
+        total     = int(it.get('totNmprCnt', 0) or 0)
+        male      = int(it.get('maleNmprCnt', 0) or 0)
+        female    = int(it.get('femlNmprCnt', 0) or 0)
+        households = int(it.get('hhCnt', 0) or 0)
+        hh_size   = float(it.get('hhNmpr', 0) or 0)
+        mf_ratio  = float(it.get('maleFemlRate', 0) or 0)
+        sido_nm   = it.get('ctpvNm', '')
+
+        regions[hira_cd] = {
+            'name':       sido_nm,
+            'total':      total,
+            'male':       male,
+            'female':     female,
+            'households': households,
+            'hhSize':     hh_size,
+            'mfRatio':    mf_ratio,
+        }
+        pct_m = male / total * 100 if total else 0
+        print(f'  [{sido_nm}] 총 {total:,}명  남 {pct_m:.1f}%  세대 {households:,}')
 
     output_path = DATA_DIR / 'population.json'
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump({'updated': stdr_ym, 'regions': regions}, f,
+        json.dump({'updated': ym, 'regions': regions}, f,
                   ensure_ascii=False, separators=(',', ':'))
 
-    print(f'\n✅ 완료: {output_path} ({len(regions)}개 지역)')
+    print(f'\n완료: {output_path} ({len(regions)}개 지역)')
 
 
 if __name__ == '__main__':
