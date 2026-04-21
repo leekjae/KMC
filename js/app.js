@@ -54,7 +54,7 @@ const state = {
   searchText: '',
   selectedId: null,
   sgisData: null,
-  choroplethVisible: true,
+  choroplethVisible: false,
   sggPolygons: [],
   sggGeoData: null,
 };

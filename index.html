@@ -48,10 +48,10 @@
       <div id="map"></div>
 
       <!-- 의료현황 레이어 토글 -->
-      <button id="choropleth-toggle" class="active">의료현황</button>
+      <button id="choropleth-toggle">의료현황</button>
 
       <!-- 범례 -->
-      <div id="choropleth-legend" class="visible">
+      <div id="choropleth-legend">
         <div class="legend-title">의료업종 비율</div>
         <div class="legend-gradient"></div>
         <div class="legend-labels">
@@ -69,7 +69,9 @@
 
     <!-- 상세 정보 패널 -->
     <div id="info-panel" hidden>
-      <button id="info-close" aria-label="정보창 닫기">✕</button>
+      <div id="info-header">
+        <button id="info-close" aria-label="정보창 닫기">✕ 닫기</button>
+      </div>
       <div id="info-content"></div>
     </div>
 
