@@ -47,20 +47,16 @@
     <main id="map-container">
       <div id="map"></div>
 
-      <!-- SGIS 통계 레이어 토글 -->
-      <div id="layer-toggles">
-        <button class="layer-btn active" data-layer="pop">인구</button>
-        <button class="layer-btn" data-layer="corp">사업체</button>
-        <button class="layer-btn" data-layer="med">의료현황</button>
-      </div>
+      <!-- 의료현황 레이어 토글 -->
+      <button id="choropleth-toggle" class="active">의료현황</button>
 
-      <!-- 레이어 범례 -->
+      <!-- 범례 -->
       <div id="choropleth-legend" class="visible">
-        <div class="legend-title" id="legend-title">인구 분포</div>
-        <div class="legend-gradient" id="legend-gradient"></div>
+        <div class="legend-title">의료업종 비율</div>
+        <div class="legend-gradient"></div>
         <div class="legend-labels">
-          <span>적음</span>
-          <span>많음</span>
+          <span>낮음</span>
+          <span>높음</span>
         </div>
         <div class="legend-updated" id="legend-updated"></div>
       </div>

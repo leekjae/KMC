@@ -22,20 +22,6 @@ const SIDO_LIST = [
   { code: '390000', name: '제주' },
 ];
 
-// HIRA 6자리 코드 → SGIS/KOSTAT 2자리 코드
-const HIRA_TO_KOSTAT = {
-  '110000':'11','210000':'21','220000':'22','230000':'23','240000':'24',
-  '250000':'25','260000':'26','410000':'29','310000':'31','320000':'32',
-  '330000':'33','340000':'34','350000':'35','360000':'36','370000':'37',
-  '380000':'38','390000':'39',
-};
-
-const LAYER_CONFIG = {
-  pop:  { label:'인구 분포',    gradFrom:'rgb(219,234,255)', gradTo:'rgb(30,90,160)',   stroke:'#1a73e8' },
-  corp: { label:'사업체 현황',  gradFrom:'rgb(212,245,215)', gradTo:'rgb(27,120,50)',   stroke:'#2e7d32' },
-  med:  { label:'의료업종 비율',gradFrom:'rgb(255,235,220)', gradTo:'rgb(190,40,40)',   stroke:'#c62828' },
-};
-
 const TYPE_GROUPS = [
   { label: '상급·종합병원', codes: ['01', '11'],             color: '#d32f2f' },
   { label: '병원',          codes: ['21', '28', '29'],        color: '#f57c00' },
@@ -68,13 +54,9 @@ const state = {
   searchText: '',
   selectedId: null,
   sgisData: null,
-  activeLayer: 'pop',   // 'pop' | 'corp' | 'med' | null
-  sidoPolygons: [],
+  choroplethVisible: true,
   sggPolygons: [],
-  dongPolygons: [],
-  sidoGeoData: null,
   sggGeoData: null,
-  dongGeoData: null,
 };
 
 // ============================================================
@@ -105,10 +87,8 @@ function initMap() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       const z = state.map.getZoom();
-      const zoomChanged = z !== lastZoom;
       lastZoom = z;
-      updateMarkers(zoomChanged);
-      if (zoomChanged) updateLayer();
+      updateMarkers(z !== lastZoom);
     }, 250);
   });
 }
@@ -120,7 +100,7 @@ function initUI() {
   buildTypeFilters();
   buildSidoSelect();
   bindSearchEvents();
-  initLayerToggles();
+  initChoroplethToggle();
   document.getElementById('info-close').addEventListener('click', closeInfoPanel);
 }
 
@@ -167,7 +147,7 @@ function buildSidoSelect() {
   select.addEventListener('change', e => {
     state.activeSido = e.target.value;
     applyFilters();
-    updateLayer();
+    updateChoropleth();
   });
 }
 
@@ -191,26 +171,20 @@ function bindSearchEvents() {
 }
 
 // ============================================================
-// SGIS 레이어 토글
+// 코로플레스 토글
 // ============================================================
-function initLayerToggles() {
-  document.querySelectorAll('.layer-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const layer = btn.dataset.layer;
-      if (state.activeLayer === layer) {
-        state.activeLayer = null;
-        btn.classList.remove('active');
-        document.getElementById('choropleth-legend').classList.remove('visible');
-        clearPolygons(state.sidoPolygons);
-        clearPolygons(state.sggPolygons);
-      } else {
-        state.activeLayer = layer;
-        document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('choropleth-legend').classList.add('visible');
-        updateLayer();
-      }
-    });
+function initChoroplethToggle() {
+  const btn = document.getElementById('choropleth-toggle');
+  btn.addEventListener('click', () => {
+    state.choroplethVisible = !state.choroplethVisible;
+    btn.classList.toggle('active', state.choroplethVisible);
+    document.getElementById('choropleth-legend')
+      .classList.toggle('visible', state.choroplethVisible);
+    if (state.choroplethVisible) {
+      updateChoropleth();
+    } else {
+      clearPolygons(state.sggPolygons);
+    }
   });
 }
 
@@ -246,7 +220,7 @@ async function loadSgisData() {
     state.sgisData = data;
     const yr = data.updated || '';
     document.getElementById('legend-updated').textContent = yr ? `${yr}년 기준` : '';
-    updateLayer();
+    updateChoropleth();
   } catch (e) { /* 무시 */ }
 }
 
@@ -323,7 +297,7 @@ function buildClusters(items, zoom) {
 // ============================================================
 // 마커 업데이트
 // ============================================================
-function updateMarkers(zoomChanged) {
+function updateMarkers() {
   if (state.filteredData.length === 0) {
     state.markers.forEach(m => m.setMap(null));
     state.markers = [];
@@ -404,90 +378,26 @@ function buildClusterIcon(count) {
 }
 
 // ============================================================
-// SGIS 코로플레스 레이어
+// 의료현황 코로플레스 (시군구 단위)
 // ============================================================
 function clearPolygons(arr) {
   arr.forEach(p => p.setMap(null));
   arr.length = 0;
 }
 
-function getLayerValue(d, layer) {
-  if (!d) return null;
-  if (layer === 'pop')  return d.population || null;
-  if (layer === 'corp') return d.corp_cnt || null;
-  if (layer === 'med')  return (d.med_per != null && d.med_per > 0) ? d.med_per : null;
-  return null;
-}
-
-function getLayerColor(value, min, max, layer) {
-  if (value == null) return 'rgb(230,230,230)';
+function getMedColor(value, min, max) {
+  if (value == null || value === 0) return 'rgb(230,230,230)';
   const t = max > min ? (value - min) / (max - min) : 0;
-  if (layer === 'pop') {
-    return `rgb(${Math.round(219 - t*189)},${Math.round(234 - t*144)},${Math.round(255 - t*95)})`;
-  }
-  if (layer === 'corp') {
-    return `rgb(${Math.round(212 - t*185)},${Math.round(245 - t*125)},${Math.round(215 - t*165)})`;
-  }
-  if (layer === 'med') {
-    return `rgb(${Math.round(255 - t*65)},${Math.round(235 - t*195)},${Math.round(220 - t*180)})`;
-  }
-  return 'rgb(200,200,200)';
+  return `rgb(${Math.round(255 - t*65)},${Math.round(235 - t*195)},${Math.round(220 - t*180)})`;
 }
 
-function updateLegend(layer, levelLabel) {
-  const cfg = LAYER_CONFIG[layer];
-  if (!cfg) return;
-  const title = levelLabel ? `${cfg.label} (${levelLabel})` : cfg.label;
-  document.getElementById('legend-title').textContent = title;
-  document.getElementById('legend-gradient').style.background =
-    `linear-gradient(to right, ${cfg.gradFrom}, ${cfg.gradTo})`;
-}
-
-async function updateLayer() {
-  if (!state.activeLayer || !state.sgisData) return;
-  const zoom = state.map.getZoom();
+async function updateChoropleth() {
+  if (!state.choroplethVisible || !state.sgisData) return;
   try {
-    if (state.activeLayer === 'med') {
-      // 의료현황: 시군구 고정 (읍면동 데이터 없음)
-      clearPolygons(state.sidoPolygons);
-      clearPolygons(state.dongPolygons);
-      await drawSggLayer('med', state.activeSido || null);
-    } else if (state.activeLayer === 'corp') {
-      // 사업체: 시군구까지만 (읍면동 데이터 없음)
-      clearPolygons(state.dongPolygons);
-      if (state.activeSido) {
-        clearPolygons(state.sidoPolygons);
-        await drawSggLayer('corp', state.activeSido);
-      } else {
-        clearPolygons(state.sggPolygons);
-        await drawSidoLayer('corp');
-      }
-    } else if (state.activeLayer === 'pop') {
-      // 인구: 시도 선택 + zoom≥12 이면 읍면동
-      if (state.activeSido && zoom >= 12 && state.sgisData.dong) {
-        clearPolygons(state.sidoPolygons);
-        clearPolygons(state.sggPolygons);
-        await drawDongLayer(state.activeSido);
-      } else if (state.activeSido) {
-        clearPolygons(state.sidoPolygons);
-        clearPolygons(state.dongPolygons);
-        await drawSggLayer('pop', state.activeSido);
-      } else {
-        clearPolygons(state.sggPolygons);
-        clearPolygons(state.dongPolygons);
-        await drawSidoLayer('pop');
-      }
-    }
+    await drawMedLayer(state.activeSido || null);
   } catch (e) {
-    console.warn('레이어 오류:', e);
+    console.warn('코로플레스 오류:', e);
   }
-}
-
-async function loadSidoGeo() {
-  if (state.sidoGeoData) return state.sidoGeoData;
-  const resp = await fetch(`${DATA_BASE_URL}/sido_geo.json`);
-  state.sidoGeoData = await resp.json();
-  return state.sidoGeoData;
 }
 
 async function loadSggGeo() {
@@ -497,14 +407,6 @@ async function loadSggGeo() {
   return state.sggGeoData;
 }
 
-async function loadDongGeo() {
-  if (state.dongGeoData) return state.dongGeoData;
-  const resp = await fetch(`${DATA_BASE_URL}/dong_geo.json`);
-  state.dongGeoData = await resp.json();
-  return state.dongGeoData;
-}
-
-// 단일 공유 InfoWindow (호버 툴팁)
 let _choroplethInfo = null;
 function getChoroplethInfo() {
   if (!_choroplethInfo) {
@@ -517,62 +419,7 @@ function getChoroplethInfo() {
   return _choroplethInfo;
 }
 
-function makeTipContent(name, d, layer, isDong) {
-  if (!d) return `<div class="map-tooltip">${escapeHtml(name)}<br><span class="tip-sub">데이터 없음</span></div>`;
-  let rows = '';
-  if (layer === 'pop') {
-    const pop = isDong ? (d.population || 0) : (d.population || 0);
-    rows = `<div class="tip-row">인구 <span>${pop.toLocaleString()}명</span></div>`;
-  } else if (layer === 'corp') {
-    rows = `<div class="tip-row">사업체 <span>${(d.corp_cnt || 0).toLocaleString()}개</span></div>
-            <div class="tip-row">종사자 <span>${(d.tot_worker || 0).toLocaleString()}명</span></div>`;
-  } else if (layer === 'med') {
-    rows = `<div class="tip-row">의료업종 비율 <span>${(d.med_per || 0).toFixed(2)}%</span></div>`;
-  }
-  return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong>${rows}</div>`;
-}
-
-async function drawSidoLayer(layer) {
-  const geo = await loadSidoGeo();
-  const sidoStats = state.sgisData.sido;
-
-  const values = Object.values(sidoStats).map(d => getLayerValue(d, layer)).filter(v => v != null);
-  const minVal = Math.min(...values);
-  const maxVal = Math.max(...values);
-
-  updateLegend(layer, '시도');
-  clearPolygons(state.sidoPolygons);
-  const info = getChoroplethInfo();
-
-  geo.features.forEach(feat => {
-    const sidoCd = feat.properties.sidoCd;
-    const kostatCd = HIRA_TO_KOSTAT[sidoCd];
-    const d = kostatCd ? sidoStats[kostatCd] : null;
-    const val = getLayerValue(d, layer);
-    const color = getLayerColor(val, minVal, maxVal, layer);
-    const name = feat.properties.name || sidoCd;
-
-    geoJsonToPolygons(feat.geometry, {
-      fillColor: color, fillOpacity: 0.6,
-      strokeColor: '#fff', strokeWeight: 1.5, strokeOpacity: 0.8,
-      zIndex: 10,
-    }).forEach(poly => {
-      poly.setMap(state.map);
-      naver.maps.Event.addListener(poly, 'mouseover', e => {
-        poly.setOptions({ strokeWeight: 3, strokeColor: LAYER_CONFIG[layer].stroke });
-        info.setContent(makeTipContent(name, d, layer));
-        info.open(state.map, e.coord);
-      });
-      naver.maps.Event.addListener(poly, 'mouseout', () => {
-        poly.setOptions({ strokeWeight: 1.5, strokeColor: '#fff' });
-        info.close();
-      });
-      state.sidoPolygons.push(poly);
-    });
-  });
-}
-
-async function drawSggLayer(layer, sidoCd) {
+async function drawMedLayer(sidoCd) {
   const geo = await loadSggGeo();
   const sggStats = state.sgisData.sgg;
 
@@ -580,19 +427,20 @@ async function drawSggLayer(layer, sidoCd) {
     ? geo.features.filter(f => f.properties.sidoCd === sidoCd)
     : geo.features;
 
-  const values = feats.map(f => getLayerValue(sggStats[f.properties.code], layer)).filter(v => v != null);
+  const values = feats
+    .map(f => sggStats[f.properties.code]?.med_per)
+    .filter(v => v != null && v > 0);
   const minVal = values.length > 0 ? Math.min(...values) : 0;
   const maxVal = values.length > 0 ? Math.max(...values) : 1;
 
-  updateLegend(layer, '시군구');
   clearPolygons(state.sggPolygons);
   const info = getChoroplethInfo();
 
   feats.forEach(feat => {
     const code = feat.properties.code;
     const d = sggStats[code];
-    const val = getLayerValue(d, layer);
-    const color = getLayerColor(val, minVal, maxVal, layer);
+    const val = d?.med_per ?? null;
+    const color = getMedColor(val, minVal, maxVal);
     const name = feat.properties.name;
 
     geoJsonToPolygons(feat.geometry, {
@@ -602,8 +450,8 @@ async function drawSggLayer(layer, sidoCd) {
     }).forEach(poly => {
       poly.setMap(state.map);
       naver.maps.Event.addListener(poly, 'mouseover', e => {
-        poly.setOptions({ strokeWeight: 2, strokeColor: LAYER_CONFIG[layer].stroke });
-        info.setContent(makeTipContent(name, d, layer));
+        poly.setOptions({ strokeWeight: 2, strokeColor: '#c62828' });
+        info.setContent(makeTipContent(name, d));
         info.open(state.map, e.coord);
       });
       naver.maps.Event.addListener(poly, 'mouseout', () => {
@@ -615,53 +463,16 @@ async function drawSggLayer(layer, sidoCd) {
   });
 }
 
-async function drawDongLayer(sidoCd) {
-  const geo = await loadDongGeo();
-  const dongStats = state.sgisData.dong || {};
-
-  const feats = sidoCd
-    ? geo.features.filter(f => f.properties.sidoCd === sidoCd)
-    : geo.features;
-
-  const values = feats.map(f => {
-    const d = dongStats[f.properties.code];
-    return d ? (d.population || null) : null;
-  }).filter(v => v != null);
-  const minVal = values.length > 0 ? Math.min(...values) : 0;
-  const maxVal = values.length > 0 ? Math.max(...values) : 1;
-
-  updateLegend('pop', '읍면동');
-  clearPolygons(state.dongPolygons);
-  const info = getChoroplethInfo();
-
-  feats.forEach(feat => {
-    const code = feat.properties.code;
-    const d = dongStats[code];
-    const val = d ? (d.population || null) : null;
-    const color = getLayerColor(val, minVal, maxVal, 'pop');
-    const name = feat.properties.name;
-
-    geoJsonToPolygons(feat.geometry, {
-      fillColor: color, fillOpacity: 0.65,
-      strokeColor: '#fff', strokeWeight: 0.5, strokeOpacity: 0.6,
-      zIndex: 10,
-    }).forEach(poly => {
-      poly.setMap(state.map);
-      naver.maps.Event.addListener(poly, 'mouseover', e => {
-        poly.setOptions({ strokeWeight: 2, strokeColor: LAYER_CONFIG['pop'].stroke });
-        info.setContent(makeTipContent(name, d, 'pop', true));
-        info.open(state.map, e.coord);
-      });
-      naver.maps.Event.addListener(poly, 'mouseout', () => {
-        poly.setOptions({ strokeWeight: 0.5, strokeColor: '#fff' });
-        info.close();
-      });
-      state.dongPolygons.push(poly);
-    });
-  });
+function makeTipContent(name, d) {
+  if (!d) return `<div class="map-tooltip">${escapeHtml(name)}<br><span class="tip-sub">데이터 없음</span></div>`;
+  return `
+    <div class="map-tooltip">
+      <strong>${escapeHtml(name)}</strong>
+      <div class="tip-row">의료업종 비율 <span>${(d.med_per || 0).toFixed(2)}%</span></div>
+    </div>
+  `;
 }
 
-// GeoJSON geometry → Naver Maps Polygon 배열
 function geoJsonToPolygons(geometry, opts) {
   const polys = [];
   const makeNaverPaths = rings =>

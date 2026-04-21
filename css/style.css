@@ -284,17 +284,11 @@ body {
 /* ============================================================
    Choropleth Controls
    ============================================================ */
-#layer-toggles {
+#choropleth-toggle {
   position: absolute;
   top: 110px;
   right: 10px;
   z-index: 100;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.layer-btn {
   background: #fff;
   border: 2px solid #dadce0;
   border-radius: 8px;
@@ -306,18 +300,18 @@ body {
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   transition: all 0.15s;
-  white-space: nowrap;
-  text-align: center;
 }
 
-.layer-btn:hover:not(.active) {
-  border-color: #1a73e8;
-  color: #1a73e8;
+#choropleth-toggle.active {
+  background: #c62828;
+  border-color: #c62828;
+  color: #fff;
 }
 
-.layer-btn[data-layer="pop"].active  { background: #1a73e8; border-color: #1a73e8; color: #fff; }
-.layer-btn[data-layer="corp"].active { background: #2e7d32; border-color: #2e7d32; color: #fff; }
-.layer-btn[data-layer="med"].active  { background: #c62828; border-color: #c62828; color: #fff; }
+#choropleth-toggle:hover:not(.active) {
+  border-color: #c62828;
+  color: #c62828;
+}
 
 /* 범례 */
 #choropleth-legend {
@@ -345,9 +339,8 @@ body {
 .legend-gradient {
   height: 10px;
   border-radius: 3px;
-  background: linear-gradient(to right, rgb(219,234,255), rgb(30,90,160));
+  background: linear-gradient(to right, rgb(255,235,220), rgb(190,40,40));
   margin-bottom: 4px;
-  transition: background 0.3s;
 }
 
 .legend-labels {
