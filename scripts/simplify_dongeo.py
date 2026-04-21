@@ -1,6 +1,6 @@
 """
-시군구(municipalities) GeoJSON 다운로드 + 단순화 → data/sgg_geo.json
-SGIS adm_cd(5자리 KOSTAT) = southkorea-maps code → 통계 데이터와 직접 매칭
+읍면동(submunicipalities) GeoJSON 다운로드 + 단순화 → data/dong_geo.json
+southkorea-maps code(7자리) → SGIS adm_cd: code + '0' = 8자리
 """
 import json, sys, urllib.request
 from pathlib import Path
@@ -12,8 +12,8 @@ except ImportError:
     sys.exit(1)
 
 URL = ('https://raw.githubusercontent.com/southkorea/southkorea-maps/'
-       'master/kostat/2013/json/skorea_municipalities_geo.json')
-OUT = Path(__file__).parent.parent / 'data' / 'sgg_geo.json'
+       'master/kostat/2013/json/skorea_submunicipalities_geo.json')
+OUT = Path(__file__).parent.parent / 'data' / 'dong_geo.json'
 TOLERANCE = 0.003
 
 KOSTAT_TO_HIRA = {
@@ -32,8 +32,6 @@ def main():
 
     feats = raw['features']
     print(f'총 피처 수: {len(feats)}')
-    if feats:
-        print('첫 피처 속성:', feats[0]['properties'])
 
     out_feats, skipped = [], 0
     for feat in feats:
@@ -60,9 +58,10 @@ def main():
             'type': 'Feature',
             'geometry': mapping(geom),
             'properties': {
-                'code':   code,       # SGIS adm_cd (5자리) - 통계 매칭용
-                'name':   name,
-                'sidoCd': sido_hira,  # HIRA 시도코드
+                'code':    code,                       # 7자리 (SGIS: code+'0')
+                'name':    name,
+                'sggCode': code[:5] if len(code)>=5 else '',  # 시군구 코드
+                'sidoCd':  sido_hira,                  # HIRA 시도코드
             },
         })
 

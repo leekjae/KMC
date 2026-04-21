@@ -71,8 +71,10 @@ const state = {
   activeLayer: 'pop',   // 'pop' | 'corp' | 'med' | null
   sidoPolygons: [],
   sggPolygons: [],
+  dongPolygons: [],
   sidoGeoData: null,
   sggGeoData: null,
+  dongGeoData: null,
 };
 
 // ============================================================
@@ -106,6 +108,7 @@ function initMap() {
       const zoomChanged = z !== lastZoom;
       lastZoom = z;
       updateMarkers(zoomChanged);
+      if (zoomChanged) updateLayer();
     }, 250);
   });
 }
@@ -431,26 +434,49 @@ function getLayerColor(value, min, max, layer) {
   return 'rgb(200,200,200)';
 }
 
-function updateLegend(layer) {
+function updateLegend(layer, levelLabel) {
   const cfg = LAYER_CONFIG[layer];
   if (!cfg) return;
-  document.getElementById('legend-title').textContent = cfg.label;
+  const title = levelLabel ? `${cfg.label} (${levelLabel})` : cfg.label;
+  document.getElementById('legend-title').textContent = title;
   document.getElementById('legend-gradient').style.background =
     `linear-gradient(to right, ${cfg.gradFrom}, ${cfg.gradTo})`;
 }
 
 async function updateLayer() {
   if (!state.activeLayer || !state.sgisData) return;
+  const zoom = state.map.getZoom();
   try {
     if (state.activeLayer === 'med') {
+      // 의료현황: 시군구 고정 (읍면동 데이터 없음)
       clearPolygons(state.sidoPolygons);
-      await drawSggLayer('med', state.activeSido);
-    } else if (state.activeSido) {
-      clearPolygons(state.sidoPolygons);
-      await drawSggLayer(state.activeLayer, state.activeSido);
-    } else {
-      clearPolygons(state.sggPolygons);
-      await drawSidoLayer(state.activeLayer);
+      clearPolygons(state.dongPolygons);
+      await drawSggLayer('med', state.activeSido || null);
+    } else if (state.activeLayer === 'corp') {
+      // 사업체: 시군구까지만 (읍면동 데이터 없음)
+      clearPolygons(state.dongPolygons);
+      if (state.activeSido) {
+        clearPolygons(state.sidoPolygons);
+        await drawSggLayer('corp', state.activeSido);
+      } else {
+        clearPolygons(state.sggPolygons);
+        await drawSidoLayer('corp');
+      }
+    } else if (state.activeLayer === 'pop') {
+      // 인구: 시도 선택 + zoom≥12 이면 읍면동
+      if (state.activeSido && zoom >= 12 && state.sgisData.dong) {
+        clearPolygons(state.sidoPolygons);
+        clearPolygons(state.sggPolygons);
+        await drawDongLayer(state.activeSido);
+      } else if (state.activeSido) {
+        clearPolygons(state.sidoPolygons);
+        clearPolygons(state.dongPolygons);
+        await drawSggLayer('pop', state.activeSido);
+      } else {
+        clearPolygons(state.sggPolygons);
+        clearPolygons(state.dongPolygons);
+        await drawSidoLayer('pop');
+      }
     }
   } catch (e) {
     console.warn('레이어 오류:', e);
@@ -471,6 +497,13 @@ async function loadSggGeo() {
   return state.sggGeoData;
 }
 
+async function loadDongGeo() {
+  if (state.dongGeoData) return state.dongGeoData;
+  const resp = await fetch(`${DATA_BASE_URL}/dong_geo.json`);
+  state.dongGeoData = await resp.json();
+  return state.dongGeoData;
+}
+
 // 단일 공유 InfoWindow (호버 툴팁)
 let _choroplethInfo = null;
 function getChoroplethInfo() {
@@ -484,11 +517,12 @@ function getChoroplethInfo() {
   return _choroplethInfo;
 }
 
-function makeTipContent(name, d, layer) {
+function makeTipContent(name, d, layer, isDong) {
   if (!d) return `<div class="map-tooltip">${escapeHtml(name)}<br><span class="tip-sub">데이터 없음</span></div>`;
   let rows = '';
   if (layer === 'pop') {
-    rows = `<div class="tip-row">인구 <span>${(d.population || 0).toLocaleString()}명</span></div>`;
+    const pop = isDong ? (d.population || 0) : (d.population || 0);
+    rows = `<div class="tip-row">인구 <span>${pop.toLocaleString()}명</span></div>`;
   } else if (layer === 'corp') {
     rows = `<div class="tip-row">사업체 <span>${(d.corp_cnt || 0).toLocaleString()}개</span></div>
             <div class="tip-row">종사자 <span>${(d.tot_worker || 0).toLocaleString()}명</span></div>`;
@@ -506,7 +540,7 @@ async function drawSidoLayer(layer) {
   const minVal = Math.min(...values);
   const maxVal = Math.max(...values);
 
-  updateLegend(layer);
+  updateLegend(layer, '시도');
   clearPolygons(state.sidoPolygons);
   const info = getChoroplethInfo();
 
@@ -550,7 +584,7 @@ async function drawSggLayer(layer, sidoCd) {
   const minVal = values.length > 0 ? Math.min(...values) : 0;
   const maxVal = values.length > 0 ? Math.max(...values) : 1;
 
-  updateLegend(layer);
+  updateLegend(layer, '시군구');
   clearPolygons(state.sggPolygons);
   const info = getChoroplethInfo();
 
@@ -577,6 +611,52 @@ async function drawSggLayer(layer, sidoCd) {
         info.close();
       });
       state.sggPolygons.push(poly);
+    });
+  });
+}
+
+async function drawDongLayer(sidoCd) {
+  const geo = await loadDongGeo();
+  const dongStats = state.sgisData.dong || {};
+
+  const feats = sidoCd
+    ? geo.features.filter(f => f.properties.sidoCd === sidoCd)
+    : geo.features;
+
+  const values = feats.map(f => {
+    const d = dongStats[f.properties.code];
+    return d ? (d.population || null) : null;
+  }).filter(v => v != null);
+  const minVal = values.length > 0 ? Math.min(...values) : 0;
+  const maxVal = values.length > 0 ? Math.max(...values) : 1;
+
+  updateLegend('pop', '읍면동');
+  clearPolygons(state.dongPolygons);
+  const info = getChoroplethInfo();
+
+  feats.forEach(feat => {
+    const code = feat.properties.code;
+    const d = dongStats[code];
+    const val = d ? (d.population || null) : null;
+    const color = getLayerColor(val, minVal, maxVal, 'pop');
+    const name = feat.properties.name;
+
+    geoJsonToPolygons(feat.geometry, {
+      fillColor: color, fillOpacity: 0.65,
+      strokeColor: '#fff', strokeWeight: 0.5, strokeOpacity: 0.6,
+      zIndex: 10,
+    }).forEach(poly => {
+      poly.setMap(state.map);
+      naver.maps.Event.addListener(poly, 'mouseover', e => {
+        poly.setOptions({ strokeWeight: 2, strokeColor: LAYER_CONFIG['pop'].stroke });
+        info.setContent(makeTipContent(name, d, 'pop', true));
+        info.open(state.map, e.coord);
+      });
+      naver.maps.Event.addListener(poly, 'mouseout', () => {
+        poly.setOptions({ strokeWeight: 0.5, strokeColor: '#fff' });
+        info.close();
+      });
+      state.dongPolygons.push(poly);
     });
   });
 }

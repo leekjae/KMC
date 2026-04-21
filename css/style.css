@@ -286,7 +286,7 @@ body {
    ============================================================ */
 #layer-toggles {
   position: absolute;
-  top: 60px;
+  top: 110px;
   right: 10px;
   z-index: 100;
   display: flex;

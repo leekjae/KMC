@@ -23,21 +23,34 @@ jobs:
           python-version: '3.11'
 
       - name: 의존성 설치
-        run: pip install requests
+        run: pip install requests shapely
 
       - name: 병의원 데이터 수집
         env:
           HIRA_API_KEY: ${{ secrets.HIRA_API_KEY }}
         run: python scripts/fetch_hospitals.py
 
-      - name: 인구통계 수집
+      - name: SGIS 통계 수집 (인구/사업체/의료현황/읍면동)
         env:
-          MOIS_API_KEY: ${{ secrets.MOIS_API_KEY }}
+          SGIS_KEY: ${{ secrets.SGIS_KEY }}
+          SGIS_SECRET: ${{ secrets.SGIS_SECRET }}
         run: |
-          if [ -n "$MOIS_API_KEY" ]; then
-            python scripts/fetch_population.py
+          if [ -n "$SGIS_KEY" ]; then
+            python scripts/fetch_sgis.py
           else
-            echo "MOIS_API_KEY 미설정 — 인구통계 수집 건너뜀"
+            echo "SGIS_KEY 미설정 — SGIS 통계 수집 건너뜀"
+          fi
+
+      - name: 시군구 경계 갱신 (필요 시)
+        run: |
+          if [ ! -f data/sgg_geo.json ]; then
+            python scripts/simplify_sgugeo.py
+          fi
+
+      - name: 읍면동 경계 갱신 (필요 시)
+        run: |
+          if [ ! -f data/dong_geo.json ]; then
+            python scripts/simplify_dongeo.py
           fi
 
       - name: 변경사항 커밋 및 푸시
