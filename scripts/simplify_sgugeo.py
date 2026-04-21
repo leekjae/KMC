@@ -1,5 +1,6 @@
 """
-읍면동 GeoJSON 다운로드 + Shapely 단순화 → data/dong_geo.json
+시군구(municipalities) GeoJSON 다운로드 + 단순화 → data/sgg_geo.json
+SGIS adm_cd(5자리 KOSTAT) = southkorea-maps code → 통계 데이터와 직접 매칭
 """
 import json, sys, urllib.request
 from pathlib import Path
@@ -11,11 +12,10 @@ except ImportError:
     sys.exit(1)
 
 URL = ('https://raw.githubusercontent.com/southkorea/southkorea-maps/'
-       'master/kostat/2013/json/skorea_submunicipalities_geo.json')
-OUT = Path(__file__).parent.parent / 'data' / 'dong_geo.json'
-TOLERANCE = 0.005
+       'master/kostat/2013/json/skorea_municipalities_geo.json')
+OUT = Path(__file__).parent.parent / 'data' / 'sgg_geo.json'
+TOLERANCE = 0.01
 
-# KOSTAT 시도 코드(앞 2자리) → HIRA sidoCd(6자리)
 KOSTAT_TO_HIRA = {
     '11': '110000', '21': '210000', '22': '220000',
     '23': '230000', '24': '240000', '25': '250000',
@@ -35,16 +35,14 @@ def main():
     if feats:
         print('첫 피처 속성:', feats[0]['properties'])
 
-    out_feats = []
-    skipped = 0
+    out_feats, skipped = [], 0
     for feat in feats:
         props = feat.get('properties', {})
-        # southkorea-maps 속성 키 확인
-        code = str(props.get('code', '') or props.get('EMD_CD', '') or '')
-        name = str(props.get('name', '') or props.get('EMD_KOR_NM', '') or '')
+        code = str(props.get('code', '') or '')
+        name = str(props.get('name', '') or '')
 
         sido_kostat = code[:2] if len(code) >= 2 else ''
-        sido_hira = KOSTAT_TO_HIRA.get(sido_kostat, '')
+        sido_hira   = KOSTAT_TO_HIRA.get(sido_kostat, '')
         if not sido_hira:
             skipped += 1
             continue
@@ -54,7 +52,7 @@ def main():
             if geom.is_empty:
                 skipped += 1
                 continue
-        except Exception as e:
+        except Exception:
             skipped += 1
             continue
 
@@ -62,9 +60,9 @@ def main():
             'type': 'Feature',
             'geometry': mapping(geom),
             'properties': {
-                'code': code,
-                'name': name,
-                'sidoCd': sido_hira,
+                'code':   code,       # SGIS adm_cd (5자리) - 통계 매칭용
+                'name':   name,
+                'sidoCd': sido_hira,  # HIRA 시도코드
             },
         })
 

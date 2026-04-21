@@ -3,7 +3,34 @@
     "allow": [
       "WebFetch(domain:www.data.go.kr)",
       "Bash(python3 *)",
-      "Bash(curl -s \"https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList?serviceKey=TyVqyGlNolTUhpOIxIQsM6ByhBPKTxegkxeEdpRTdOK%2BdfG4Xe9tAJRNuqh44Bls%2BwMa9%2B7WimkEI%2FgyGWjqNQ%3D%3D&pageNo=1&numOfRows=2&sidoCd=110000&_type=json\")"
+      "Bash(curl -s \"https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList?serviceKey=TyVqyGlNolTUhpOIxIQsM6ByhBPKTxegkxeEdpRTdOK%2BdfG4Xe9tAJRNuqh44Bls%2BwMa9%2B7WimkEI%2FgyGWjqNQ%3D%3D&pageNo=1&numOfRows=2&sidoCd=110000&_type=json\")",
+      "Bash(curl -s \"https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList?serviceKey=TyVqyGlNolTUhpOIxIQsM6ByhBPKTxegkxeEdpRTdOK%2BdfG4Xe9tAJRNuqh44Bls%2BwMa9%2B7WimkEI%2FgyGWjqNQ%3D%3D&pageNo=1&numOfRows=5&clCd=92&_type=json\")",
+      "Bash(curl *)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\)\\); console.log\\(Object.keys\\(d.response.body.items.item[0]\\).join\\('\\\\n'\\)\\);\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('tmp_resp.json'\\)\\); const item=d.response.body.items.item[0]; console.log\\(Object.keys\\(item\\).join\\('\\\\n'\\)\\);\")",
+      "Bash(del D:/Claude/Korean_Me/tmp_resp.json)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(py -3 -c ' *)",
+      "Bash(py -3)",
+      "Bash(py -3 -c \"import sys,json; d=json.load\\(sys.stdin\\) if isinstance\\(sys.stdin.read\\(0\\) or True, bool\\) else None\")",
+      "Bash(py -3 -c \" import json d = json.load\\(open\\('data/hospitals_110000.json', encoding='utf-8'\\)\\) print\\('총', len\\(d\\), '건'\\) print\\('필드:', list\\(d[0].keys\\(\\)\\)\\) print\\('샘플:', json.dumps\\(d[0], ensure_ascii=False\\)\\) \")",
+      "WebFetch(domain:apis.data.go.kr)",
+      "WebSearch",
+      "WebFetch(domain:sgis.mods.go.kr)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:rdoa.jumin.go.kr)",
+      "WebFetch(domain:sgis.kostat.go.kr)",
+      "WebFetch(domain:jumin.mois.go.kr)",
+      "Bash(py -3 scripts/fetch_population.py)",
+      "Bash(node --check js/app.js)",
+      "Bash(git rm *)"
     ]
   }
 }

@@ -22,6 +22,20 @@ const SIDO_LIST = [
   { code: '390000', name: '제주' },
 ];
 
+// HIRA 6자리 코드 → SGIS/KOSTAT 2자리 코드
+const HIRA_TO_KOSTAT = {
+  '110000':'11','210000':'21','220000':'22','230000':'23','240000':'24',
+  '250000':'25','260000':'26','410000':'29','310000':'31','320000':'32',
+  '330000':'33','340000':'34','350000':'35','360000':'36','370000':'37',
+  '380000':'38','390000':'39',
+};
+
+const LAYER_CONFIG = {
+  pop:  { label:'인구 분포',    gradFrom:'rgb(219,234,255)', gradTo:'rgb(30,90,160)',   stroke:'#1a73e8' },
+  corp: { label:'사업체 현황',  gradFrom:'rgb(212,245,215)', gradTo:'rgb(27,120,50)',   stroke:'#2e7d32' },
+  med:  { label:'의료업종 비율',gradFrom:'rgb(255,235,220)', gradTo:'rgb(190,40,40)',   stroke:'#c62828' },
+};
+
 const TYPE_GROUPS = [
   { label: '상급·종합병원', codes: ['01', '11'],             color: '#d32f2f' },
   { label: '병원',          codes: ['21', '28', '29'],        color: '#f57c00' },
@@ -53,13 +67,12 @@ const state = {
   activeSido: '',
   searchText: '',
   selectedId: null,
-  populationData: null,
-  // 코로플레스
-  choroplethVisible: true,
+  sgisData: null,
+  activeLayer: 'pop',   // 'pop' | 'corp' | 'med' | null
   sidoPolygons: [],
-  dongPolygons: [],
+  sggPolygons: [],
   sidoGeoData: null,
-  dongGeoData: null,
+  sggGeoData: null,
 };
 
 // ============================================================
@@ -69,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMap();
   initUI();
   loadAllData();
-  loadPopulationData();
+  loadSgisData();
 });
 
 // ============================================================
@@ -104,7 +117,7 @@ function initUI() {
   buildTypeFilters();
   buildSidoSelect();
   bindSearchEvents();
-  initChoroplethToggle();
+  initLayerToggles();
   document.getElementById('info-close').addEventListener('click', closeInfoPanel);
 }
 
@@ -151,7 +164,7 @@ function buildSidoSelect() {
   select.addEventListener('change', e => {
     state.activeSido = e.target.value;
     applyFilters();
-    updateChoropleth();
+    updateLayer();
   });
 }
 
@@ -175,21 +188,26 @@ function bindSearchEvents() {
 }
 
 // ============================================================
-// 코로플레스 토글
+// SGIS 레이어 토글
 // ============================================================
-function initChoroplethToggle() {
-  const btn = document.getElementById('choropleth-toggle');
-  btn.addEventListener('click', () => {
-    state.choroplethVisible = !state.choroplethVisible;
-    btn.classList.toggle('active', state.choroplethVisible);
-    document.getElementById('choropleth-legend')
-      .classList.toggle('visible', state.choroplethVisible);
-    if (state.choroplethVisible) {
-      updateChoropleth();
-    } else {
-      clearPolygons(state.sidoPolygons);
-      clearPolygons(state.dongPolygons);
-    }
+function initLayerToggles() {
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const layer = btn.dataset.layer;
+      if (state.activeLayer === layer) {
+        state.activeLayer = null;
+        btn.classList.remove('active');
+        document.getElementById('choropleth-legend').classList.remove('visible');
+        clearPolygons(state.sidoPolygons);
+        clearPolygons(state.sggPolygons);
+      } else {
+        state.activeLayer = layer;
+        document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('choropleth-legend').classList.add('visible');
+        updateLayer();
+      }
+    });
   });
 }
 
@@ -217,21 +235,15 @@ async function loadAllData() {
   }
 }
 
-async function loadPopulationData() {
+async function loadSgisData() {
   try {
-    const resp = await fetch(`${DATA_BASE_URL}/population.json`);
+    const resp = await fetch(`${DATA_BASE_URL}/sgis_stats.json`);
     if (!resp.ok) return;
     const data = await resp.json();
-    if (data.regions && Object.keys(data.regions).length > 0) {
-      state.populationData = data;
-      // 범례에 기준월 표시
-      const ym = data.updated || '';
-      if (ym.length === 6) {
-        document.getElementById('legend-updated').textContent =
-          `${ym.slice(0,4)}.${ym.slice(4)} 기준`;
-      }
-      updateChoropleth();
-    }
+    state.sgisData = data;
+    const yr = data.updated || '';
+    document.getElementById('legend-updated').textContent = yr ? `${yr}년 기준` : '';
+    updateLayer();
   } catch (e) { /* 무시 */ }
 }
 
@@ -389,34 +401,59 @@ function buildClusterIcon(count) {
 }
 
 // ============================================================
-// 코로플레스 (인구통계 지도 레이어)
+// SGIS 코로플레스 레이어
 // ============================================================
-function getPopColor(value, min, max) {
-  if (!value) return 'rgb(230,230,230)';
-  const t = max > min ? (value - min) / (max - min) : 0;
-  const r = Math.round(219 - t * 189);  // 219 → 30
-  const g = Math.round(234 - t * 144);  // 234 → 90
-  const b = Math.round(255 - t *  95);  // 255 → 160
-  return `rgb(${r},${g},${b})`;
-}
-
 function clearPolygons(arr) {
   arr.forEach(p => p.setMap(null));
   arr.length = 0;
 }
 
-async function updateChoropleth() {
-  if (!state.choroplethVisible || !state.populationData) return;
+function getLayerValue(d, layer) {
+  if (!d) return null;
+  if (layer === 'pop')  return d.population || null;
+  if (layer === 'corp') return d.corp_cnt || null;
+  if (layer === 'med')  return (d.med_per != null && d.med_per > 0) ? d.med_per : null;
+  return null;
+}
+
+function getLayerColor(value, min, max, layer) {
+  if (value == null) return 'rgb(230,230,230)';
+  const t = max > min ? (value - min) / (max - min) : 0;
+  if (layer === 'pop') {
+    return `rgb(${Math.round(219 - t*189)},${Math.round(234 - t*144)},${Math.round(255 - t*95)})`;
+  }
+  if (layer === 'corp') {
+    return `rgb(${Math.round(212 - t*185)},${Math.round(245 - t*125)},${Math.round(215 - t*165)})`;
+  }
+  if (layer === 'med') {
+    return `rgb(${Math.round(255 - t*65)},${Math.round(235 - t*195)},${Math.round(220 - t*180)})`;
+  }
+  return 'rgb(200,200,200)';
+}
+
+function updateLegend(layer) {
+  const cfg = LAYER_CONFIG[layer];
+  if (!cfg) return;
+  document.getElementById('legend-title').textContent = cfg.label;
+  document.getElementById('legend-gradient').style.background =
+    `linear-gradient(to right, ${cfg.gradFrom}, ${cfg.gradTo})`;
+}
+
+async function updateLayer() {
+  if (!state.activeLayer || !state.sgisData) return;
   try {
-    if (state.activeSido) {
+    if (state.activeLayer === 'med') {
       clearPolygons(state.sidoPolygons);
-      await drawDongChoropleth(state.activeSido);
+      await drawSggLayer('med', state.activeSido);
+    } else if (state.activeSido) {
+      clearPolygons(state.sidoPolygons);
+      await drawSggLayer(state.activeLayer, state.activeSido);
     } else {
-      clearPolygons(state.dongPolygons);
-      await drawSidoChoropleth();
+      clearPolygons(state.sggPolygons);
+      await drawSidoLayer(state.activeLayer);
     }
   } catch (e) {
-    console.warn('코로플레스 오류:', e);
+    console.warn('레이어 오류:', e);
   }
 }
 
@@ -427,11 +464,11 @@ async function loadSidoGeo() {
   return state.sidoGeoData;
 }
 
-async function loadDongGeo() {
-  if (state.dongGeoData) return state.dongGeoData;
-  const resp = await fetch(`${DATA_BASE_URL}/dong_geo.json`);
-  state.dongGeoData = await resp.json();
-  return state.dongGeoData;
+async function loadSggGeo() {
+  if (state.sggGeoData) return state.sggGeoData;
+  const resp = await fetch(`${DATA_BASE_URL}/sgg_geo.json`);
+  state.sggGeoData = await resp.json();
+  return state.sggGeoData;
 }
 
 // 단일 공유 InfoWindow (호버 툴팁)
@@ -447,32 +484,38 @@ function getChoroplethInfo() {
   return _choroplethInfo;
 }
 
-function makeTipContent(name, d) {
+function makeTipContent(name, d, layer) {
   if (!d) return `<div class="map-tooltip">${escapeHtml(name)}<br><span class="tip-sub">데이터 없음</span></div>`;
-  return `
-    <div class="map-tooltip">
-      <strong>${escapeHtml(name)}</strong>
-      <div class="tip-row">인구 <span>${d.total.toLocaleString()}명</span></div>
-      <div class="tip-row">세대 <span>${d.households.toLocaleString()}세대</span></div>
-    </div>
-  `;
+  let rows = '';
+  if (layer === 'pop') {
+    rows = `<div class="tip-row">인구 <span>${(d.population || 0).toLocaleString()}명</span></div>`;
+  } else if (layer === 'corp') {
+    rows = `<div class="tip-row">사업체 <span>${(d.corp_cnt || 0).toLocaleString()}개</span></div>
+            <div class="tip-row">종사자 <span>${(d.tot_worker || 0).toLocaleString()}명</span></div>`;
+  } else if (layer === 'med') {
+    rows = `<div class="tip-row">의료업종 비율 <span>${(d.med_per || 0).toFixed(2)}%</span></div>`;
+  }
+  return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong>${rows}</div>`;
 }
 
-async function drawSidoChoropleth() {
+async function drawSidoLayer(layer) {
   const geo = await loadSidoGeo();
-  const regions = state.populationData.regions;
+  const sidoStats = state.sgisData.sido;
 
-  const pops = Object.values(regions).map(r => r.total).filter(Boolean);
-  const minPop = Math.min(...pops);
-  const maxPop = Math.max(...pops);
+  const values = Object.values(sidoStats).map(d => getLayerValue(d, layer)).filter(v => v != null);
+  const minVal = Math.min(...values);
+  const maxVal = Math.max(...values);
 
+  updateLegend(layer);
   clearPolygons(state.sidoPolygons);
   const info = getChoroplethInfo();
 
   geo.features.forEach(feat => {
     const sidoCd = feat.properties.sidoCd;
-    const d = regions[sidoCd];
-    const color = getPopColor(d?.total, minPop, maxPop);
+    const kostatCd = HIRA_TO_KOSTAT[sidoCd];
+    const d = kostatCd ? sidoStats[kostatCd] : null;
+    const val = getLayerValue(d, layer);
+    const color = getLayerColor(val, minVal, maxVal, layer);
     const name = feat.properties.name || sidoCd;
 
     geoJsonToPolygons(feat.geometry, {
@@ -482,8 +525,8 @@ async function drawSidoChoropleth() {
     }).forEach(poly => {
       poly.setMap(state.map);
       naver.maps.Event.addListener(poly, 'mouseover', e => {
-        poly.setOptions({ strokeWeight: 3, strokeColor: '#1a73e8' });
-        info.setContent(makeTipContent(name, d));
+        poly.setOptions({ strokeWeight: 3, strokeColor: LAYER_CONFIG[layer].stroke });
+        info.setContent(makeTipContent(name, d, layer));
         info.open(state.map, e.coord);
       });
       naver.maps.Event.addListener(poly, 'mouseout', () => {
@@ -495,27 +538,27 @@ async function drawSidoChoropleth() {
   });
 }
 
-async function drawDongChoropleth(sidoCd) {
-  const geo = await loadDongGeo();
-  const dongs = state.populationData.dongs || {};
+async function drawSggLayer(layer, sidoCd) {
+  const geo = await loadSggGeo();
+  const sggStats = state.sgisData.sgg;
 
-  const sidoFeats = geo.features.filter(f => f.properties.sidoCd === sidoCd);
+  const feats = sidoCd
+    ? geo.features.filter(f => f.properties.sidoCd === sidoCd)
+    : geo.features;
 
-  const pops = sidoFeats.map(f => {
-    const key = sidoCd + '_' + f.properties.name;
-    return dongs[key]?.total || 0;
-  }).filter(Boolean);
+  const values = feats.map(f => getLayerValue(sggStats[f.properties.code], layer)).filter(v => v != null);
+  const minVal = values.length > 0 ? Math.min(...values) : 0;
+  const maxVal = values.length > 0 ? Math.max(...values) : 1;
 
-  const minPop = pops.length > 0 ? Math.min(...pops) : 0;
-  const maxPop = pops.length > 0 ? Math.max(...pops) : 1;
-
-  clearPolygons(state.dongPolygons);
+  updateLegend(layer);
+  clearPolygons(state.sggPolygons);
   const info = getChoroplethInfo();
 
-  sidoFeats.forEach(feat => {
-    const key = sidoCd + '_' + feat.properties.name;
-    const d = dongs[key];
-    const color = getPopColor(d?.total, minPop, maxPop);
+  feats.forEach(feat => {
+    const code = feat.properties.code;
+    const d = sggStats[code];
+    const val = getLayerValue(d, layer);
+    const color = getLayerColor(val, minVal, maxVal, layer);
     const name = feat.properties.name;
 
     geoJsonToPolygons(feat.geometry, {
@@ -525,15 +568,15 @@ async function drawDongChoropleth(sidoCd) {
     }).forEach(poly => {
       poly.setMap(state.map);
       naver.maps.Event.addListener(poly, 'mouseover', e => {
-        poly.setOptions({ strokeWeight: 2, strokeColor: '#1a73e8' });
-        info.setContent(makeTipContent(name, d));
+        poly.setOptions({ strokeWeight: 2, strokeColor: LAYER_CONFIG[layer].stroke });
+        info.setContent(makeTipContent(name, d, layer));
         info.open(state.map, e.coord);
       });
       naver.maps.Event.addListener(poly, 'mouseout', () => {
         poly.setOptions({ strokeWeight: 0.8, strokeColor: '#fff' });
         info.close();
       });
-      state.dongPolygons.push(poly);
+      state.sggPolygons.push(poly);
     });
   });
 }
