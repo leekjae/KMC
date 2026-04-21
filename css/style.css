@@ -204,10 +204,7 @@ body {
   scroll-behavior: smooth;
 }
 
-#results-list::-webkit-scrollbar {
-  width: 4px;
-}
-
+#results-list::-webkit-scrollbar { width: 4px; }
 #results-list::-webkit-scrollbar-thumb {
   background: #dadce0;
   border-radius: 4px;
@@ -220,9 +217,7 @@ body {
   transition: background 0.12s;
 }
 
-.result-item:hover {
-  background: #f8f9fa;
-}
+.result-item:hover { background: #f8f9fa; }
 
 .result-item.active {
   background: #e8f0fe;
@@ -287,6 +282,99 @@ body {
 }
 
 /* ============================================================
+   Choropleth Controls
+   ============================================================ */
+#choropleth-toggle {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  z-index: 100;
+  background: #fff;
+  border: 2px solid #dadce0;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 500;
+  color: #5f6368;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  transition: all 0.15s;
+}
+
+#choropleth-toggle.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #fff;
+}
+
+#choropleth-toggle:hover:not(.active) {
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+/* 범례 */
+#choropleth-legend {
+  position: absolute;
+  bottom: 32px;
+  right: 10px;
+  z-index: 100;
+  background: rgba(255,255,255,0.93);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.14);
+  min-width: 140px;
+  display: none;
+}
+
+#choropleth-legend.visible { display: block; }
+
+.legend-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #202124;
+  margin-bottom: 5px;
+}
+
+.legend-gradient {
+  height: 10px;
+  border-radius: 3px;
+  background: linear-gradient(to right, rgb(219,234,255), rgb(30,90,160));
+  margin-bottom: 4px;
+}
+
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #80868b;
+  margin-bottom: 3px;
+}
+
+.legend-updated {
+  font-size: 9px;
+  color: #bbb;
+  text-align: right;
+}
+
+/* 코로플레스 호버 툴팁 (InfoWindow 내부) */
+.map-tooltip {
+  background: rgba(32,33,36,0.85);
+  color: #fff;
+  font-size: 12px;
+  padding: 7px 11px;
+  border-radius: 6px;
+  line-height: 1.6;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-tooltip strong { font-size: 13px; }
+.tip-sub { color: #aaa; font-size: 11px; }
+.tip-row { color: #ddd; font-size: 11px; }
+.tip-row span { color: #fff; font-weight: 500; }
+
+/* ============================================================
    Loading Overlay
    ============================================================ */
 #loading-overlay {
@@ -302,10 +390,7 @@ body {
   backdrop-filter: blur(2px);
 }
 
-#loading-overlay p {
-  font-size: 14px;
-  color: #5f6368;
-}
+#loading-overlay p { font-size: 14px; color: #5f6368; }
 
 .loading-spinner {
   width: 40px;
@@ -316,9 +401,7 @@ body {
   animation: spin 0.75s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ============================================================
    Info Panel (상세 정보)
@@ -337,9 +420,7 @@ body {
   transition: transform 0.25s ease;
 }
 
-#info-panel[hidden] {
-  display: none;
-}
+#info-panel[hidden] { display: none; }
 
 #info-close {
   position: fixed;
@@ -360,10 +441,7 @@ body {
   z-index: 21;
 }
 
-#info-close:hover {
-  background: #e8eaed;
-  color: #202124;
-}
+#info-close:hover { background: #e8eaed; color: #202124; }
 
 .info-type-badge {
   display: inline-block;
@@ -384,11 +462,7 @@ body {
   word-break: keep-all;
 }
 
-.info-divider {
-  height: 1px;
-  background: #e8eaed;
-  margin: 14px 0;
-}
+.info-divider { height: 1px; background: #e8eaed; margin: 14px 0; }
 
 .info-row {
   display: flex;
@@ -397,13 +471,7 @@ body {
   align-items: flex-start;
 }
 
-.info-row-icon {
-  flex-shrink: 0;
-  width: 20px;
-  font-size: 15px;
-  line-height: 1.5;
-  text-align: center;
-}
+.info-row-icon { flex-shrink: 0; width: 20px; font-size: 15px; line-height: 1.5; text-align: center; }
 
 .info-row-text {
   flex: 1;
@@ -413,23 +481,11 @@ body {
   word-break: break-all;
 }
 
-.info-row-text a {
-  color: #1a73e8;
-  text-decoration: none;
-}
-
-.info-row-text a:hover {
-  text-decoration: underline;
-}
-
-.info-row-label {
-  font-size: 11px;
-  color: #80868b;
-  margin-bottom: 2px;
-}
+.info-row-text a { color: #1a73e8; text-decoration: none; }
+.info-row-text a:hover { text-decoration: underline; }
 
 /* ============================================================
-   Cluster Markers (네이버 지도 MarkerClustering)
+   Cluster Markers
    ============================================================ */
 .cluster-marker {
   display: flex;
@@ -445,257 +501,13 @@ body {
   transition: transform 0.1s;
 }
 
-.cluster-marker:hover {
-  transform: scale(1.05);
-}
-
-/* ============================================================
-   Status Filter (영업상태)
-   ============================================================ */
-#status-filters {
-  display: flex;
-  gap: 5px;
-}
-
-.status-btn {
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 1.5px solid #dadce0;
-  background: #fff;
-  cursor: pointer;
-  font-size: 12px;
-  font-family: inherit;
-  color: #5f6368;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.status-btn:hover:not(.active) {
-  border-color: #1a73e8;
-  color: #1a73e8;
-  background: #e8f0fe;
-}
-
-.status-btn.active[data-status="open"]   { background: #1a73e8; border-color: #1a73e8; color: #fff; font-weight: 500; }
-.status-btn.active[data-status="closed"] { background: #d32f2f; border-color: #d32f2f; color: #fff; font-weight: 500; }
-.status-btn.active[data-status="all"]    { background: #5f6368; border-color: #5f6368; color: #fff; font-weight: 500; }
-
-/* Closed hospital styling */
-.closed-badge {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: #fce8e6;
-  color: #d32f2f;
-  margin-left: 5px;
-  vertical-align: middle;
-}
-
-.result-item.is-closed .result-name {
-  color: #9e9e9e;
-  text-decoration: line-through;
-}
-
-/* ============================================================
-   View Tabs (목록 / 인구통계)
-   ============================================================ */
-#view-tabs {
-  display: flex;
-  margin-top: 8px;
-  border-bottom: 2px solid #e8eaed;
-}
-
-.view-tab {
-  flex: 1;
-  padding: 7px 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-  color: #5f6368;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.15s;
-}
-
-.view-tab.active {
-  color: #1a73e8;
-  border-bottom-color: #1a73e8;
-  font-weight: 600;
-}
-
-.view-tab:hover:not(.active) {
-  background: #f8f9fa;
-  color: #202124;
-}
-
-/* ============================================================
-   Population Section (인구통계)
-   ============================================================ */
-#pop-section {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.pop-header {
-  margin-bottom: 14px;
-}
-
-.pop-region-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: #202124;
-}
-
-.pop-total-count {
-  font-size: 12px;
-  color: #5f6368;
-  margin-top: 3px;
-}
-
-.pop-gender-row {
-  display: flex;
-  gap: 12px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-top: 4px;
-}
-
-.pop-male-count   { color: #1a73e8; }
-.pop-female-count { color: #e91e63; }
-
-/* 성별 바 차트 */
-.pop-gender-section {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pop-gender-row-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pop-gender-label {
-  width: 28px;
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.male-label   { color: #1a73e8; }
-.female-label { color: #e91e63; }
-
-.pop-gender-bar-wrap {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pop-gender-bar {
-  height: 18px;
-  border-radius: 3px;
-  transition: width 0.4s ease;
-  min-width: 4px;
-}
-
-.male-bar   { background: #1a73e8; }
-.female-bar { background: #e91e63; }
-
-.pop-gender-val {
-  font-size: 11px;
-  color: #444;
-  white-space: nowrap;
-}
-
-.pop-pct {
-  color: #80868b;
-  margin-left: 3px;
-}
-
-/* 구분선 */
-.pop-divider-line-h {
-  height: 1px;
-  background: #e8eaed;
-  margin: 14px 0;
-}
-
-/* 통계 그리드 */
-.pop-stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.pop-stat-item {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 8px 6px;
-  text-align: center;
-}
-
-.pop-stat-label {
-  font-size: 9px;
-  color: #80868b;
-  margin-bottom: 4px;
-}
-
-.pop-stat-value {
-  font-size: 14px;
-  font-weight: 700;
-  color: #202124;
-}
-
-.pop-stat-unit {
-  font-size: 9px;
-  font-weight: 400;
-  color: #80868b;
-  margin-left: 1px;
-}
-
-.pop-updated {
-  font-size: 10px;
-  color: #bbb;
-  margin-top: 8px;
-  text-align: right;
-}
-
-.pop-no-data {
-  text-align: center;
-  padding: 36px 16px;
-  color: #80868b;
-  font-size: 13px;
-  line-height: 2;
-}
-
-.pop-no-data code {
-  display: block;
-  margin-top: 10px;
-  font-size: 11px;
-  background: #f8f9fa;
-  padding: 8px 12px;
-  border-radius: 6px;
-  color: #333;
-  text-align: left;
-  word-break: break-all;
-  line-height: 1.8;
-}
+.cluster-marker:hover { transform: scale(1.05); }
 
 /* ============================================================
    Responsive (모바일)
    ============================================================ */
 @media (max-width: 768px) {
-  #app {
-    flex-direction: column;
-  }
+  #app { flex-direction: column; }
 
   #sidebar {
     width: 100%;
@@ -705,11 +517,7 @@ body {
     order: 2;
   }
 
-  #map-container {
-    flex: none;
-    height: 55vh;
-    order: 1;
-  }
+  #map-container { flex: none; height: 55vh; order: 1; }
 
   #info-panel {
     width: 100%;
@@ -719,7 +527,7 @@ body {
     position: absolute;
   }
 
-  #info-close {
-    position: absolute;
-  }
+  #info-close { position: absolute; }
+
+  #choropleth-legend { bottom: 10px; }
 }

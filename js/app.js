@@ -2,9 +2,6 @@
 // 전국 병의원 현황 지도 - 메인 애플리케이션
 // ============================================================
 
-// ============================================================
-// 상수 정의
-// ============================================================
 const SIDO_LIST = [
   { code: '110000', name: '서울' },
   { code: '210000', name: '부산' },
@@ -25,7 +22,6 @@ const SIDO_LIST = [
   { code: '390000', name: '제주' },
 ];
 
-// 종별 그룹 (실제 API clCd 기준)
 const TYPE_GROUPS = [
   { label: '상급·종합병원', codes: ['01', '11'],             color: '#d32f2f' },
   { label: '병원',          codes: ['21', '28', '29'],        color: '#f57c00' },
@@ -36,7 +32,6 @@ const TYPE_GROUPS = [
   { label: '보건소',        codes: ['71', '72', '73', '75'],  color: '#5d4037' },
 ];
 
-// 줌 레벨별 클러스터 격자 크기 (위경도 단위)
 const CLUSTER_GRID = {
   5: 2.0, 6: 1.5, 7: 1.0, 8: 0.5, 9: 0.25,
   10: 0.12, 11: 0.06, 12: 0.03, 13: 0.015,
@@ -58,9 +53,13 @@ const state = {
   activeSido: '',
   searchText: '',
   selectedId: null,
-  statusFilter: 'open',    // 'open' | 'closed' | 'all'
   populationData: null,
-  activeView: 'list',      // 'list' | 'population'
+  // 코로플레스
+  choroplethVisible: true,
+  sidoPolygons: [],
+  dongPolygons: [],
+  sidoGeoData: null,
+  dongGeoData: null,
 };
 
 // ============================================================
@@ -82,20 +81,17 @@ function initMap() {
     zoom: 7,
     mapTypeId: naver.maps.MapTypeId.NORMAL,
     zoomControl: true,
-    zoomControlOptions: {
-      position: naver.maps.Position.TOP_RIGHT,
-    },
+    zoomControlOptions: { position: naver.maps.Position.TOP_RIGHT },
   });
 
-  // 지도 이동/줌 완료 후 마커 갱신 (디바운스 250ms)
   let idleTimer = null;
   let lastZoom = state.map.getZoom();
   naver.maps.Event.addListener(state.map, 'idle', () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      const currentZoom = state.map.getZoom();
-      const zoomChanged = currentZoom !== lastZoom;
-      lastZoom = currentZoom;
+      const z = state.map.getZoom();
+      const zoomChanged = z !== lastZoom;
+      lastZoom = z;
       updateMarkers(zoomChanged);
     }, 250);
   });
@@ -105,42 +101,11 @@ function initMap() {
 // UI 초기화
 // ============================================================
 function initUI() {
-  buildStatusFilter();
   buildTypeFilters();
   buildSidoSelect();
   bindSearchEvents();
-  bindViewTabs();
+  initChoroplethToggle();
   document.getElementById('info-close').addEventListener('click', closeInfoPanel);
-}
-
-// 영업상태 필터
-function buildStatusFilter() {
-  document.querySelectorAll('#status-filters .status-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#status-filters .status-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      state.statusFilter = btn.dataset.status;
-      applyFilters();
-    });
-  });
-}
-
-// 목록/인구통계 탭
-function bindViewTabs() {
-  document.querySelectorAll('.view-tab').forEach(tab => {
-    tab.addEventListener('click', () => setActiveView(tab.dataset.view));
-  });
-}
-
-function setActiveView(view) {
-  state.activeView = view;
-  document.querySelectorAll('.view-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.view === view)
-  );
-  const isList = view === 'list';
-  document.getElementById('results-list').hidden = !isList;
-  document.getElementById('pop-section').hidden = isList;
-  if (!isList) renderPopulationChart();
 }
 
 function buildTypeFilters() {
@@ -150,11 +115,9 @@ function buildTypeFilters() {
     btn.className = 'filter-btn active';
     btn.textContent = group.label;
     btn.dataset.type = group.label;
-    btn.style.setProperty('--group-color', group.color);
     btn.style.background = group.color;
     btn.style.borderColor = group.color;
     btn.style.color = '#fff';
-
     btn.addEventListener('click', () => toggleTypeFilter(group.label, btn, group.color));
     container.appendChild(btn);
   });
@@ -187,23 +150,14 @@ function buildSidoSelect() {
   });
   select.addEventListener('change', e => {
     state.activeSido = e.target.value;
-    updateViewTabsVisibility();
     applyFilters();
+    updateChoropleth();
   });
-}
-
-function updateViewTabsVisibility() {
-  const tabs = document.getElementById('view-tabs');
-  tabs.hidden = !state.activeSido;
-  if (!state.activeSido && state.activeView === 'population') {
-    setActiveView('list');
-  }
 }
 
 function bindSearchEvents() {
   const input = document.getElementById('search-input');
   const clearBtn = document.getElementById('search-clear');
-
   let debounceTimer;
   input.addEventListener('input', e => {
     state.searchText = e.target.value.trim();
@@ -211,7 +165,6 @@ function bindSearchEvents() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(applyFilters, 200);
   });
-
   clearBtn.addEventListener('click', () => {
     input.value = '';
     state.searchText = '';
@@ -222,7 +175,26 @@ function bindSearchEvents() {
 }
 
 // ============================================================
-// 데이터 로드 (시도별 JSON 병렬 로드)
+// 코로플레스 토글
+// ============================================================
+function initChoroplethToggle() {
+  const btn = document.getElementById('choropleth-toggle');
+  btn.addEventListener('click', () => {
+    state.choroplethVisible = !state.choroplethVisible;
+    btn.classList.toggle('active', state.choroplethVisible);
+    document.getElementById('choropleth-legend')
+      .classList.toggle('visible', state.choroplethVisible);
+    if (state.choroplethVisible) {
+      updateChoropleth();
+    } else {
+      clearPolygons(state.sidoPolygons);
+      clearPolygons(state.dongPolygons);
+    }
+  });
+}
+
+// ============================================================
+// 데이터 로드
 // ============================================================
 async function loadAllData() {
   showLoading(true);
@@ -230,23 +202,12 @@ async function loadAllData() {
     const results = await Promise.allSettled(
       SIDO_LIST.map(sido =>
         fetch(`${DATA_BASE_URL}/hospitals_${sido.code}.json`)
-          .then(r => {
-            if (!r.ok) return [];
-            return r.json();
-          })
+          .then(r => r.ok ? r.json() : [])
           .catch(() => [])
       )
     );
-
-    state.allData = results.flatMap(r =>
-      r.status === 'fulfilled' ? r.value : []
-    );
-
-    if (state.allData.length === 0) {
-      renderNoData();
-      return;
-    }
-
+    state.allData = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+    if (state.allData.length === 0) { renderNoData(); return; }
     applyFilters();
   } catch (err) {
     console.error('데이터 로드 오류:', err);
@@ -263,17 +224,19 @@ async function loadPopulationData() {
     const data = await resp.json();
     if (data.regions && Object.keys(data.regions).length > 0) {
       state.populationData = data;
-      // 인구통계 탭이 열려 있으면 갱신
-      if (state.activeView === 'population') renderPopulationChart();
+      // 범례에 기준월 표시
+      const ym = data.updated || '';
+      if (ym.length === 6) {
+        document.getElementById('legend-updated').textContent =
+          `${ym.slice(0,4)}.${ym.slice(4)} 기준`;
+      }
+      updateChoropleth();
     }
-  } catch (e) {
-    // 파일 없으면 무시
-  }
+  } catch (e) { /* 무시 */ }
 }
 
 function showLoading(show) {
-  const el = document.getElementById('loading-overlay');
-  el.style.display = show ? 'flex' : 'none';
+  document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
 }
 
 function renderNoData() {
@@ -293,18 +256,11 @@ function renderNoData() {
 // ============================================================
 function applyFilters() {
   const activeTypeCodes = new Set(
-    TYPE_GROUPS
-      .filter(g => state.activeTypes.has(g.label))
-      .flatMap(g => g.codes)
+    TYPE_GROUPS.filter(g => state.activeTypes.has(g.label)).flatMap(g => g.codes)
   );
-
   const query = state.searchText.toLowerCase();
 
   state.filteredData = state.allData.filter(item => {
-    // 영업상태 필터
-    if (state.statusFilter === 'open'   &&  item.closed) return false;
-    if (state.statusFilter === 'closed' && !item.closed) return false;
-
     if (!activeTypeCodes.has(item.clCd)) return false;
     if (state.activeSido && item.sidoCd !== state.activeSido) return false;
     if (query) {
@@ -328,32 +284,24 @@ function applyFilters() {
 // ============================================================
 function buildClusters(items, zoom) {
   if (zoom >= 14) {
-    return items
-      .filter(d => d.lat && d.lng)
+    return items.filter(d => d.lat && d.lng)
       .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
   }
-
   const gridSize = CLUSTER_GRID[Math.max(5, Math.min(zoom, 13))] || 2.0;
   const grid = {};
-
   items.forEach(item => {
     if (!item.lat || !item.lng) return;
     const gx = Math.floor(item.lng / gridSize);
     const gy = Math.floor(item.lat / gridSize);
     const key = `${gx}:${gy}`;
-    if (!grid[key]) {
-      grid[key] = { latSum: 0, lngSum: 0, count: 0, item };
-    }
+    if (!grid[key]) grid[key] = { latSum: 0, lngSum: 0, count: 0, item };
     grid[key].latSum += item.lat;
     grid[key].lngSum += item.lng;
     grid[key].count++;
   });
-
   return Object.values(grid).map(c => ({
-    lat: c.latSum / c.count,
-    lng: c.lngSum / c.count,
-    count: c.count,
-    item: c.item,
+    lat: c.latSum / c.count, lng: c.lngSum / c.count,
+    count: c.count, item: c.item,
   }));
 }
 
@@ -366,7 +314,6 @@ function updateMarkers(zoomChanged) {
     state.markers = [];
     return;
   }
-
   const zoom = state.map.getZoom();
   const bounds = state.map.getBounds();
   let clusters;
@@ -378,9 +325,7 @@ function updateMarkers(zoomChanged) {
       .map(d => ({ lat: d.lat, lng: d.lng, count: 1, item: d }));
   } else {
     const z = Math.max(5, Math.min(zoom, 13));
-    if (!state.cachedClusters[z]) {
-      state.cachedClusters[z] = buildClusters(state.filteredData, z);
-    }
+    if (!state.cachedClusters[z]) state.cachedClusters[z] = buildClusters(state.filteredData, z);
     clusters = state.cachedClusters[z].filter(c =>
       bounds.hasLatLng(new naver.maps.LatLng(c.lat, c.lng))
     );
@@ -388,13 +333,9 @@ function updateMarkers(zoomChanged) {
 
   const newMarkers = [];
   clusters.forEach(cluster => {
-    const isClosed = cluster.count === 1 && cluster.item.closed;
-    const color = isClosed
-      ? '#9e9e9e'
-      : (getGroupByCode(cluster.item.clCd)?.color || '#666');
-
+    const color = getGroupByCode(cluster.item.clCd)?.color || '#666';
     const icon = cluster.count === 1
-      ? buildMarkerIcon(color, isClosed)
+      ? buildMarkerIcon(color)
       : buildClusterIcon(cluster.count);
 
     const marker = new naver.maps.Marker({
@@ -420,20 +361,14 @@ function updateMarkers(zoomChanged) {
   oldMarkers.forEach(m => m.setMap(null));
 }
 
-function buildMarkerIcon(color, isClosed = false) {
-  const innerSvg = isClosed
-    ? `<line x1="7.5" y1="7.5" x2="14.5" y2="14.5" stroke="white" stroke-width="2" stroke-linecap="round"/>
-       <line x1="14.5" y1="7.5" x2="7.5" y2="14.5" stroke="white" stroke-width="2" stroke-linecap="round"/>`
-    : `<circle cx="11" cy="11" r="4.5" fill="white" opacity="0.9"/>`;
-
+function buildMarkerIcon(color) {
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="28" viewBox="0 0 22 28">`,
     `<path d="M11 0C4.925 0 0 4.925 0 11c0 8.25 11 17 11 17s11-8.75 11-17C22 4.925 17.075 0 11 0z"`,
     ` fill="${color}" stroke="white" stroke-width="1.5"/>`,
-    innerSvg,
+    `<circle cx="11" cy="11" r="4.5" fill="white" opacity="0.9"/>`,
     `</svg>`,
   ].join('');
-
   return {
     content: svg,
     size: new naver.maps.Size(22, 28),
@@ -446,7 +381,6 @@ function buildClusterIcon(count) {
   const color = count >= 1000 ? '#9c27b0' : count >= 500 ? '#db4437' : count >= 100 ? '#f4b400' : count >= 10 ? '#0f9d58' : '#1a73e8';
   const label = count >= 1000 ? Math.floor(count / 1000) + 'k' : String(count);
   const fontSize = Math.round(size * 0.3);
-
   return {
     content: `<div style="width:${size}px;height:${size}px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:${fontSize}px;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid rgba(255,255,255,0.7);cursor:pointer;">${label}</div>`,
     size: new naver.maps.Size(size, size),
@@ -455,16 +389,184 @@ function buildClusterIcon(count) {
 }
 
 // ============================================================
-// 검색결과 목록 렌더링
+// 코로플레스 (인구통계 지도 레이어)
+// ============================================================
+function getPopColor(value, min, max) {
+  if (!value) return 'rgb(230,230,230)';
+  const t = max > min ? (value - min) / (max - min) : 0;
+  const r = Math.round(219 - t * 189);  // 219 → 30
+  const g = Math.round(234 - t * 144);  // 234 → 90
+  const b = Math.round(255 - t *  95);  // 255 → 160
+  return `rgb(${r},${g},${b})`;
+}
+
+function clearPolygons(arr) {
+  arr.forEach(p => p.setMap(null));
+  arr.length = 0;
+}
+
+async function updateChoropleth() {
+  if (!state.choroplethVisible || !state.populationData) return;
+  try {
+    if (state.activeSido) {
+      clearPolygons(state.sidoPolygons);
+      await drawDongChoropleth(state.activeSido);
+    } else {
+      clearPolygons(state.dongPolygons);
+      await drawSidoChoropleth();
+    }
+  } catch (e) {
+    console.warn('코로플레스 오류:', e);
+  }
+}
+
+async function loadSidoGeo() {
+  if (state.sidoGeoData) return state.sidoGeoData;
+  const resp = await fetch(`${DATA_BASE_URL}/sido_geo.json`);
+  state.sidoGeoData = await resp.json();
+  return state.sidoGeoData;
+}
+
+async function loadDongGeo() {
+  if (state.dongGeoData) return state.dongGeoData;
+  const resp = await fetch(`${DATA_BASE_URL}/dong_geo.json`);
+  state.dongGeoData = await resp.json();
+  return state.dongGeoData;
+}
+
+// 단일 공유 InfoWindow (호버 툴팁)
+let _choroplethInfo = null;
+function getChoroplethInfo() {
+  if (!_choroplethInfo) {
+    _choroplethInfo = new naver.maps.InfoWindow({
+      borderWidth: 0,
+      backgroundColor: 'transparent',
+      disableAnchor: true,
+    });
+  }
+  return _choroplethInfo;
+}
+
+function makeTipContent(name, d) {
+  if (!d) return `<div class="map-tooltip">${escapeHtml(name)}<br><span class="tip-sub">데이터 없음</span></div>`;
+  return `
+    <div class="map-tooltip">
+      <strong>${escapeHtml(name)}</strong>
+      <div class="tip-row">인구 <span>${d.total.toLocaleString()}명</span></div>
+      <div class="tip-row">세대 <span>${d.households.toLocaleString()}세대</span></div>
+    </div>
+  `;
+}
+
+async function drawSidoChoropleth() {
+  const geo = await loadSidoGeo();
+  const regions = state.populationData.regions;
+
+  const pops = Object.values(regions).map(r => r.total).filter(Boolean);
+  const minPop = Math.min(...pops);
+  const maxPop = Math.max(...pops);
+
+  clearPolygons(state.sidoPolygons);
+  const info = getChoroplethInfo();
+
+  geo.features.forEach(feat => {
+    const sidoCd = feat.properties.sidoCd;
+    const d = regions[sidoCd];
+    const color = getPopColor(d?.total, minPop, maxPop);
+    const name = feat.properties.name || sidoCd;
+
+    geoJsonToPolygons(feat.geometry, {
+      fillColor: color, fillOpacity: 0.6,
+      strokeColor: '#fff', strokeWeight: 1.5, strokeOpacity: 0.8,
+      zIndex: 10,
+    }).forEach(poly => {
+      poly.setMap(state.map);
+      naver.maps.Event.addListener(poly, 'mouseover', e => {
+        poly.setOptions({ strokeWeight: 3, strokeColor: '#1a73e8' });
+        info.setContent(makeTipContent(name, d));
+        info.open(state.map, e.coord);
+      });
+      naver.maps.Event.addListener(poly, 'mouseout', () => {
+        poly.setOptions({ strokeWeight: 1.5, strokeColor: '#fff' });
+        info.close();
+      });
+      state.sidoPolygons.push(poly);
+    });
+  });
+}
+
+async function drawDongChoropleth(sidoCd) {
+  const geo = await loadDongGeo();
+  const dongs = state.populationData.dongs || {};
+
+  const sidoFeats = geo.features.filter(f => f.properties.sidoCd === sidoCd);
+
+  const pops = sidoFeats.map(f => {
+    const key = sidoCd + '_' + f.properties.name;
+    return dongs[key]?.total || 0;
+  }).filter(Boolean);
+
+  const minPop = pops.length > 0 ? Math.min(...pops) : 0;
+  const maxPop = pops.length > 0 ? Math.max(...pops) : 1;
+
+  clearPolygons(state.dongPolygons);
+  const info = getChoroplethInfo();
+
+  sidoFeats.forEach(feat => {
+    const key = sidoCd + '_' + feat.properties.name;
+    const d = dongs[key];
+    const color = getPopColor(d?.total, minPop, maxPop);
+    const name = feat.properties.name;
+
+    geoJsonToPolygons(feat.geometry, {
+      fillColor: color, fillOpacity: 0.65,
+      strokeColor: '#fff', strokeWeight: 0.8, strokeOpacity: 0.7,
+      zIndex: 10,
+    }).forEach(poly => {
+      poly.setMap(state.map);
+      naver.maps.Event.addListener(poly, 'mouseover', e => {
+        poly.setOptions({ strokeWeight: 2, strokeColor: '#1a73e8' });
+        info.setContent(makeTipContent(name, d));
+        info.open(state.map, e.coord);
+      });
+      naver.maps.Event.addListener(poly, 'mouseout', () => {
+        poly.setOptions({ strokeWeight: 0.8, strokeColor: '#fff' });
+        info.close();
+      });
+      state.dongPolygons.push(poly);
+    });
+  });
+}
+
+// GeoJSON geometry → Naver Maps Polygon 배열
+function geoJsonToPolygons(geometry, opts) {
+  const polys = [];
+  const makeNaverPaths = rings =>
+    rings.map(ring => ring.map(([lng, lat]) => new naver.maps.LatLng(lat, lng)));
+
+  if (geometry.type === 'Polygon') {
+    polys.push(new naver.maps.Polygon({
+      paths: makeNaverPaths(geometry.coordinates),
+      ...opts,
+    }));
+  } else if (geometry.type === 'MultiPolygon') {
+    geometry.coordinates.forEach(polyCords => {
+      polys.push(new naver.maps.Polygon({
+        paths: makeNaverPaths(polyCords),
+        ...opts,
+      }));
+    });
+  }
+  return polys;
+}
+
+// ============================================================
+// 검색결과 목록
 // ============================================================
 function renderResultsList() {
   const list = document.getElementById('results-list');
-
   if (state.filteredData.length === 0) {
-    const msg = state.statusFilter === 'closed'
-      ? '폐업 데이터가 없습니다.<br>현재 영업중인 기관만 수집됩니다.'
-      : '검색 결과가 없습니다.<br>검색어나 필터를 변경해보세요.';
-    list.innerHTML = `<div class="no-results">${msg}</div>`;
+    list.innerHTML = `<div class="no-results">검색 결과가 없습니다.<br>검색어나 필터를 변경해보세요.</div>`;
     return;
   }
 
@@ -473,12 +575,11 @@ function renderResultsList() {
 
   list.innerHTML = displayItems.map(item => {
     const group = getGroupByCode(item.clCd);
-    const color = item.closed ? '#9e9e9e' : (group ? group.color : '#888');
+    const color = group ? group.color : '#888';
     const isActive = item.id === state.selectedId;
-    const closedBadge = item.closed ? '<span class="closed-badge">폐업</span>' : '';
     return `
-      <div class="result-item${isActive ? ' active' : ''}${item.closed ? ' is-closed' : ''}" role="listitem" data-id="${escapeHtml(item.id)}">
-        <span class="result-type-badge" style="background:${color}20;color:${color}">${escapeHtml(item.clCdNm || '')}</span>${closedBadge}
+      <div class="result-item${isActive ? ' active' : ''}" role="listitem" data-id="${escapeHtml(item.id)}">
+        <span class="result-type-badge" style="background:${color}20;color:${color}">${escapeHtml(item.clCdNm || '')}</span>
         <div class="result-name">${escapeHtml(item.name)}</div>
         <div class="result-addr">${escapeHtml(item.addr || '')}</div>
       </div>
@@ -506,12 +607,10 @@ function renderResultsList() {
 // ============================================================
 function selectFacility(item) {
   state.selectedId = item.id;
-
   if (item.lat && item.lng) {
     state.map.setCenter(new naver.maps.LatLng(item.lat, item.lng));
     if (state.map.getZoom() < 15) state.map.setZoom(15);
   }
-
   showInfoPanel(item);
   highlightListItem(item.id);
 }
@@ -529,13 +628,11 @@ function highlightListItem(id) {
 // ============================================================
 function showInfoPanel(item) {
   const group = getGroupByCode(item.clCd);
-  const color = item.closed ? '#9e9e9e' : (group ? group.color : '#666');
-
+  const color = group ? group.color : '#666';
   const rows = buildInfoRows(item);
 
   document.getElementById('info-content').innerHTML = `
     <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '병의원')}</div>
-    ${item.closed ? '<div style="margin:4px 0 10px;font-size:13px;color:#d32f2f;font-weight:500">🚫 폐업' + (item.closedDate ? ` (${formatDate(item.closedDate)})` : '') + '</div>' : ''}
     <div class="info-name">${escapeHtml(item.name)}</div>
     <div class="info-divider"></div>
     ${rows.map(r => `
@@ -545,35 +642,23 @@ function showInfoPanel(item) {
       </div>
     `).join('')}
   `;
-
   document.getElementById('info-panel').removeAttribute('hidden');
 }
 
 function buildInfoRows(item) {
   const rows = [];
-
-  if (item.addr) {
-    rows.push({ icon: '📍', html: escapeHtml(item.addr) });
-  }
-  if (item.phone) {
-    rows.push({ icon: '📞', html: `<a href="tel:${escapeHtml(item.phone)}">${escapeHtml(item.phone)}</a>` });
-  }
+  if (item.addr) rows.push({ icon: '📍', html: escapeHtml(item.addr) });
+  if (item.phone) rows.push({ icon: '📞', html: `<a href="tel:${escapeHtml(item.phone)}">${escapeHtml(item.phone)}</a>` });
   if (item.hospUrl) {
     const url = item.hospUrl.startsWith('http') ? item.hospUrl : 'http://' + item.hospUrl;
     rows.push({ icon: '🌐', html: `<a href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.hospUrl)}</a>` });
   }
-  if (item.estbDd) {
-    rows.push({ icon: '📅', html: `개설일 ${formatDate(item.estbDd)}` });
-  }
+  if (item.estbDd) rows.push({ icon: '📅', html: `개설일 ${formatDate(item.estbDd)}` });
   if (item.drTotCnt) {
-    const doctorText = `의사 ${item.drTotCnt}명` +
-      (item.mdeptSdrCnt ? ` (전문의 ${item.mdeptSdrCnt}명)` : '');
+    const doctorText = `의사 ${item.drTotCnt}명` + (item.mdeptSdrCnt ? ` (전문의 ${item.mdeptSdrCnt}명)` : '');
     rows.push({ icon: '👨‍⚕️', html: escapeHtml(doctorText) });
   }
-  if (item.sgguCdNm) {
-    rows.push({ icon: '🗺️', html: escapeHtml(`${item.sidoCdNm || ''} ${item.sgguCdNm}`.trim()) });
-  }
-
+  if (item.sgguCdNm) rows.push({ icon: '🗺️', html: escapeHtml(`${item.sidoCdNm || ''} ${item.sgguCdNm}`.trim()) });
   return rows;
 }
 
@@ -581,77 +666,6 @@ function closeInfoPanel() {
   document.getElementById('info-panel').setAttribute('hidden', '');
   state.selectedId = null;
   document.querySelectorAll('.result-item').forEach(el => el.classList.remove('active'));
-}
-
-// ============================================================
-// 인구통계 차트
-// ============================================================
-function renderPopulationChart() {
-  const panel = document.getElementById('pop-section');
-
-  if (!state.populationData || !state.populationData.regions?.[state.activeSido]) {
-    const hasAnyData = state.populationData && Object.keys(state.populationData.regions || {}).length > 0;
-    panel.innerHTML = `
-      <div class="pop-no-data">
-        ${hasAnyData
-          ? '선택한 지역의 인구통계 데이터가 없습니다.'
-          : `인구통계 데이터가 없습니다.<br><br>아래 명령어로 수집하세요:<code>MOIS_API_KEY=발급키<br>python scripts/fetch_population.py</code>`
-        }
-      </div>
-    `;
-    return;
-  }
-
-  const d = state.populationData.regions[state.activeSido];
-  const malePct  = d.total > 0 ? (d.male   / d.total * 100) : 50;
-  const femlPct  = d.total > 0 ? (d.female / d.total * 100) : 50;
-  const maleW    = Math.round(malePct * 2.2);   // 100% → 220px
-  const femlW    = Math.round(femlPct * 2.2);
-  const ym       = state.populationData.updated || '';
-  const ymLabel  = ym.length === 6 ? `${ym.slice(0,4)}년 ${ym.slice(4)}월` : ym;
-
-  panel.innerHTML = `
-    <div class="pop-header">
-      <div class="pop-region-name">${escapeHtml(d.name)}</div>
-      <div class="pop-total-count">총 <strong>${d.total.toLocaleString()}</strong>명</div>
-    </div>
-
-    <div class="pop-gender-section">
-      <div class="pop-gender-row-item">
-        <div class="pop-gender-label male-label">남성</div>
-        <div class="pop-gender-bar-wrap">
-          <div class="pop-gender-bar male-bar" style="width:${maleW}px"></div>
-          <div class="pop-gender-val">${d.male.toLocaleString()}명 <span class="pop-pct">${malePct.toFixed(1)}%</span></div>
-        </div>
-      </div>
-      <div class="pop-gender-row-item">
-        <div class="pop-gender-label female-label">여성</div>
-        <div class="pop-gender-bar-wrap">
-          <div class="pop-gender-bar female-bar" style="width:${femlW}px"></div>
-          <div class="pop-gender-val">${d.female.toLocaleString()}명 <span class="pop-pct">${femlPct.toFixed(1)}%</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="pop-divider-line-h"></div>
-
-    <div class="pop-stats-grid">
-      <div class="pop-stat-item">
-        <div class="pop-stat-label">세대수</div>
-        <div class="pop-stat-value">${d.households.toLocaleString()}<span class="pop-stat-unit">세대</span></div>
-      </div>
-      <div class="pop-stat-item">
-        <div class="pop-stat-label">세대당 인구</div>
-        <div class="pop-stat-value">${d.hhSize}<span class="pop-stat-unit">명</span></div>
-      </div>
-      <div class="pop-stat-item">
-        <div class="pop-stat-label">성비</div>
-        <div class="pop-stat-value">${d.mfRatio}<span class="pop-stat-unit">남/여×100</span></div>
-      </div>
-    </div>
-
-    <div class="pop-updated">기준: ${ymLabel} · 행정안전부 주민등록 인구통계</div>
-  `;
 }
 
 // ============================================================
@@ -670,9 +684,6 @@ function formatDate(d) {
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
