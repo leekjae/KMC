@@ -3,57 +3,143 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>전국 병의원 현황 지도</title>
+  <title>전국 병의원 입지 지도</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="css/style.css">
   <script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=4gzk5hdj8m"></script>
 </head>
 <body>
   <div id="app">
+    <aside id="sidebar" aria-label="탐색 패널">
+      <div class="sidebar-shell">
+        <section class="sidebar-hero">
+          <p class="eyebrow">Clinic Market Explorer</p>
+          <h1>전국 병의원 입지 지도</h1>
+          <p class="hero-copy">병의원 분포와 인구, 사업체, 의료업종 비율을 한 화면에서 비교하며 개업 후보지를 탐색할 수 있습니다.</p>
+        </section>
 
-    <!-- 사이드바 -->
-    <aside id="sidebar">
-      <div class="sidebar-header">
-        <h1>전국 병의원 현황</h1>
+        <section class="overview-grid" aria-label="현재 탐색 요약">
+          <article class="overview-card accent-blue">
+            <p class="card-kicker">조건에 맞는 기관</p>
+            <strong class="card-value" id="summary-visible-value">-</strong>
+            <p class="card-desc">병의원 목록과 지도 마커에 반영됩니다.</p>
+          </article>
+          <article class="overview-card accent-slate">
+            <p class="card-kicker">현재 범위</p>
+            <strong class="card-value" id="summary-scope-value">전국</strong>
+            <p class="card-desc" id="summary-scope-desc">시도 단위 비교 중</p>
+          </article>
+          <article class="overview-card accent-coral">
+            <p class="card-kicker">활성 레이어</p>
+            <strong class="card-value" id="summary-layer-value">인구 분포</strong>
+            <p class="card-desc" id="summary-layer-desc">병의원 마커와 함께 배경 데이터가 표시됩니다.</p>
+          </article>
+        </section>
 
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="search-input" placeholder="기관명 또는 주소로 검색" autocomplete="off">
-          <button id="search-clear" title="지우기" aria-label="검색어 지우기">✕</button>
-        </div>
+        <section class="control-card">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Search</p>
+              <h2>탐색 조건</h2>
+            </div>
+            <button id="reset-filters" class="text-btn" type="button">초기화</button>
+          </div>
 
-        <div class="filter-section">
-          <div class="filter-label">종별</div>
-          <div id="type-filters"></div>
-        </div>
+          <div class="search-wrap">
+            <label class="sr-only" for="search-input">기관명 또는 주소 검색</label>
+            <span class="search-icon" aria-hidden="true">검색</span>
+            <input type="text" id="search-input" placeholder="기관명 또는 주소로 검색" autocomplete="off">
+            <button id="search-clear" type="button" title="지우기" aria-label="검색어 지우기">지우기</button>
+          </div>
 
-        <div class="filter-section">
-          <div class="filter-label">지역</div>
-          <select id="sido-select">
-            <option value="">전체 지역</option>
-          </select>
-        </div>
+          <div class="filter-section">
+            <label class="filter-label" for="sido-select">지역</label>
+            <select id="sido-select">
+              <option value="">전체 지역</option>
+            </select>
+          </div>
 
-        <div class="count-bar">
-          <span id="visible-count">-</span>개 기관 표시중
-        </div>
+          <div class="filter-section">
+            <div class="filter-label">종별</div>
+            <div id="type-filters"></div>
+          </div>
+        </section>
+
+        <section class="control-card">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Layers</p>
+              <h2>입지 데이터 레이어</h2>
+            </div>
+            <p class="section-note">마커는 항상 유지됩니다.</p>
+          </div>
+
+          <div id="layer-toggles" class="layer-grid" role="tablist" aria-label="데이터 레이어 선택">
+            <button class="layer-btn" type="button" data-layer="none">마커만</button>
+            <button class="layer-btn active" type="button" data-layer="pop">인구</button>
+            <button class="layer-btn" type="button" data-layer="corp">사업체</button>
+            <button class="layer-btn" type="button" data-layer="med">의료업종</button>
+          </div>
+
+          <p class="layer-description" id="layer-description">전국 시도 단위 인구 규모를 비교합니다.</p>
+
+          <div class="insight-card">
+            <div class="insight-heading">
+              <div>
+                <p class="section-kicker">Scope Insight</p>
+                <h3 id="insight-scope-title">전국 요약</h3>
+              </div>
+              <span class="insight-badge" id="insight-scope-badge">시도 17개</span>
+            </div>
+
+            <div class="insight-grid">
+              <div class="insight-metric">
+                <span class="metric-label">인구</span>
+                <strong class="metric-value" id="insight-population">-</strong>
+              </div>
+              <div class="insight-metric">
+                <span class="metric-label">사업체</span>
+                <strong class="metric-value" id="insight-businesses">-</strong>
+              </div>
+              <div class="insight-metric">
+                <span class="metric-label">평균 의료업종 비율</span>
+                <strong class="metric-value" id="insight-medical">-</strong>
+              </div>
+            </div>
+
+            <p class="insight-note" id="insight-note">SGIS 기준 데이터를 바탕으로 현재 범위를 요약합니다.</p>
+          </div>
+        </section>
+
+        <section class="results-panel">
+          <div class="section-heading results-heading">
+            <div>
+              <p class="section-kicker">Facilities</p>
+              <h2>병의원 목록</h2>
+            </div>
+            <p class="results-summary"><span id="visible-count">-</span>개 기관</p>
+          </div>
+          <div id="results-list" role="list" aria-label="검색 결과 목록"></div>
+        </section>
       </div>
-
-      <div id="results-list" role="list" aria-label="검색결과 목록"></div>
     </aside>
 
-    <!-- 지도 -->
     <main id="map-container">
+      <button id="mobile-sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="false">탐색 패널</button>
+
       <div id="map"></div>
 
-      <!-- 의료현황 레이어 토글 -->
-      <button id="choropleth-toggle">의료현황</button>
+      <div id="map-overlay-card" aria-live="polite">
+        <p class="overlay-label">현재 보기</p>
+        <strong class="overlay-value" id="map-scope-label">전국</strong>
+        <p class="overlay-sub" id="map-layer-label">인구 분포 · 시도 단위</p>
+      </div>
 
-      <!-- 범례 -->
-      <div id="choropleth-legend">
-        <div class="legend-title">의료업종 비율</div>
-        <div class="legend-gradient"></div>
+      <div id="choropleth-legend" class="visible">
+        <div class="legend-title" id="legend-title">인구 분포</div>
+        <div class="legend-gradient" id="legend-gradient"></div>
         <div class="legend-labels">
           <span>낮음</span>
           <span>높음</span>
@@ -63,18 +149,20 @@
 
       <div id="loading-overlay">
         <div class="loading-spinner"></div>
-        <p>전국 병의원 데이터를 불러오는 중...</p>
+        <p>전국 병의원 데이터를 불러오는 중입니다.</p>
+      </div>
+
+      <div id="info-panel" hidden>
+        <div id="info-header">
+          <div>
+            <p class="section-kicker">Facility Detail</p>
+            <h2>기관 상세</h2>
+          </div>
+          <button id="info-close" type="button" aria-label="정보창 닫기">닫기</button>
+        </div>
+        <div id="info-content"></div>
       </div>
     </main>
-
-    <!-- 상세 정보 패널 -->
-    <div id="info-panel" hidden>
-      <div id="info-header">
-        <button id="info-close" aria-label="정보창 닫기">✕ 닫기</button>
-      </div>
-      <div id="info-content"></div>
-    </div>
-
   </div>
 
   <script src="js/app.js"></script>
