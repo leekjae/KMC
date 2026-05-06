@@ -30,7 +30,7 @@ jobs:
           HIRA_API_KEY: ${{ secrets.HIRA_API_KEY }}
         run: python scripts/fetch_hospitals.py
 
-      - name: SGIS 통계 수집 (인구/사업체/의료현황/읍면동)
+      - name: SGIS 한의원 입지 데이터 수집 (읍면동)
         env:
           SGIS_KEY: ${{ secrets.SGIS_KEY }}
           SGIS_SECRET: ${{ secrets.SGIS_SECRET }}
@@ -48,6 +48,9 @@ jobs:
           fi
 
       - name: 읍면동 경계 갱신 (필요 시)
+        env:
+          SGIS_KEY: ${{ secrets.SGIS_KEY }}
+          SGIS_SECRET: ${{ secrets.SGIS_SECRET }}
         run: |
           if [ ! -f data/dong_geo.json ]; then
             python scripts/simplify_dongeo.py

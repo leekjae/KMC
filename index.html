@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>전국 병의원 입지 지도</title>
+  <title>전국 한의원 입지 지도</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
@@ -15,26 +15,26 @@
     <aside id="sidebar" aria-label="탐색 패널">
       <div class="sidebar-shell">
         <section class="sidebar-hero">
-          <p class="eyebrow">Clinic Market Explorer</p>
-          <h1>전국 병의원 입지 지도</h1>
-          <p class="hero-copy">병의원 분포와 인구, 사업체, 의료업종 비율을 한 화면에서 비교하며 개업 후보지를 탐색할 수 있습니다.</p>
+          <p class="eyebrow">Hanuiwon Market Explorer</p>
+          <h1>전국 한의원 입지 지도</h1>
+          <p class="hero-copy">SGIS 읍면동 데이터를 바탕으로 거주 수요, 연령 구조, 직장 배후, 주거 성격을 함께 보며 한의원 개원 후보지를 탐색합니다.</p>
         </section>
 
         <section class="overview-grid" aria-label="현재 탐색 요약">
           <article class="overview-card accent-blue">
             <p class="card-kicker">조건에 맞는 기관</p>
             <strong class="card-value" id="summary-visible-value">-</strong>
-            <p class="card-desc">병의원 목록과 지도 마커에 반영됩니다.</p>
+            <p class="card-desc">기본값은 한의원만 표시하며, 다른 종별도 함께 비교할 수 있습니다.</p>
           </article>
           <article class="overview-card accent-slate">
             <p class="card-kicker">현재 범위</p>
             <strong class="card-value" id="summary-scope-value">전국</strong>
-            <p class="card-desc" id="summary-scope-desc">시도 단위 비교 중</p>
+            <p class="card-desc" id="summary-scope-desc">읍면동 단위 입지 비교 중</p>
           </article>
           <article class="overview-card accent-coral">
             <p class="card-kicker">활성 레이어</p>
-            <strong class="card-value" id="summary-layer-value">인구 분포</strong>
-            <p class="card-desc" id="summary-layer-desc">병의원 마커와 함께 배경 데이터가 표시됩니다.</p>
+            <strong class="card-value" id="summary-layer-value">65세 이상 비율</strong>
+            <p class="card-desc" id="summary-layer-desc">한의원 수요와 연결되는 SGIS 지표를 표시합니다.</p>
           </article>
         </section>
 
@@ -50,7 +50,7 @@
           <div class="search-wrap">
             <label class="sr-only" for="search-input">기관명 또는 주소 검색</label>
             <span class="search-icon" aria-hidden="true">검색</span>
-            <input type="text" id="search-input" placeholder="기관명 또는 주소로 검색" autocomplete="off">
+            <input type="text" id="search-input" placeholder="한의원명 또는 주소로 검색" autocomplete="off">
             <button id="search-clear" type="button" title="지우기" aria-label="검색어 지우기">지우기</button>
           </div>
 
@@ -71,19 +71,21 @@
           <div class="section-heading">
             <div>
               <p class="section-kicker">Layers</p>
-              <h2>입지 데이터 레이어</h2>
+              <h2>한의원 입지 레이어</h2>
             </div>
-            <p class="section-note">마커는 항상 유지됩니다.</p>
+            <p class="section-note">배경은 읍면동 단위 SGIS 지표입니다.</p>
           </div>
 
-          <div id="layer-toggles" class="layer-grid" role="tablist" aria-label="데이터 레이어 선택">
+          <div id="layer-toggles" class="layer-grid" role="tablist" aria-label="한의원 입지 레이어 선택">
             <button class="layer-btn" type="button" data-layer="none">마커만</button>
-            <button class="layer-btn active" type="button" data-layer="pop">인구</button>
-            <button class="layer-btn" type="button" data-layer="corp">사업체</button>
-            <button class="layer-btn" type="button" data-layer="med">의료업종</button>
+            <button class="layer-btn" type="button" data-layer="totalPopulation">총인구</button>
+            <button class="layer-btn" type="button" data-layer="averageAge">평균연령</button>
+            <button class="layer-btn active" type="button" data-layer="senior65Rate">65세 이상</button>
+            <button class="layer-btn" type="button" data-layer="workerCount">종사자수</button>
+            <button class="layer-btn" type="button" data-layer="apartmentRate">아파트 비율</button>
           </div>
 
-          <p class="layer-description" id="layer-description">전국 시도 단위 인구 규모를 비교합니다.</p>
+          <p class="layer-description" id="layer-description">65세 이상 인구 비율이 높은 생활권을 비교합니다.</p>
 
           <div class="insight-card">
             <div class="insight-heading">
@@ -91,25 +93,25 @@
                 <p class="section-kicker">Scope Insight</p>
                 <h3 id="insight-scope-title">전국 요약</h3>
               </div>
-              <span class="insight-badge" id="insight-scope-badge">시도 17개</span>
+              <span class="insight-badge" id="insight-scope-badge">읍면동 2,374개</span>
             </div>
 
             <div class="insight-grid">
               <div class="insight-metric">
-                <span class="metric-label">인구</span>
+                <span class="metric-label">총인구</span>
                 <strong class="metric-value" id="insight-population">-</strong>
               </div>
               <div class="insight-metric">
-                <span class="metric-label">사업체</span>
-                <strong class="metric-value" id="insight-businesses">-</strong>
+                <span class="metric-label">평균연령</span>
+                <strong class="metric-value" id="insight-average-age">-</strong>
               </div>
               <div class="insight-metric">
-                <span class="metric-label">평균 의료업종 비율</span>
-                <strong class="metric-value" id="insight-medical">-</strong>
+                <span class="metric-label">65세 이상 비율</span>
+                <strong class="metric-value" id="insight-senior-rate">-</strong>
               </div>
             </div>
 
-            <p class="insight-note" id="insight-note">SGIS 기준 데이터를 바탕으로 현재 범위를 요약합니다.</p>
+            <p class="insight-note" id="insight-note">SGIS 읍면동 데이터를 바탕으로 현재 범위를 요약합니다.</p>
           </div>
         </section>
 
@@ -117,7 +119,7 @@
           <div class="section-heading results-heading">
             <div>
               <p class="section-kicker">Facilities</p>
-              <h2>병의원 목록</h2>
+              <h2>기관 목록</h2>
             </div>
             <p class="results-summary"><span id="visible-count">-</span>개 기관</p>
           </div>
@@ -134,11 +136,11 @@
       <div id="map-overlay-card" aria-live="polite">
         <p class="overlay-label">현재 보기</p>
         <strong class="overlay-value" id="map-scope-label">전국</strong>
-        <p class="overlay-sub" id="map-layer-label">인구 분포 · 시도 단위</p>
+        <p class="overlay-sub" id="map-layer-label">65세 이상 비율 · 읍면동 단위</p>
       </div>
 
       <div id="choropleth-legend" class="visible">
-        <div class="legend-title" id="legend-title">인구 분포</div>
+        <div class="legend-title" id="legend-title">65세 이상 비율</div>
         <div class="legend-gradient" id="legend-gradient"></div>
         <div class="legend-labels">
           <span>낮음</span>
@@ -149,7 +151,7 @@
 
       <div id="loading-overlay">
         <div class="loading-spinner"></div>
-        <p>전국 병의원 데이터를 불러오는 중입니다.</p>
+        <p>한의원 데이터와 SGIS 입지 지표를 불러오는 중입니다.</p>
       </div>
 
       <div id="info-panel" hidden>

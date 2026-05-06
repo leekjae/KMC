@@ -18,57 +18,6 @@ const SIDO_LIST = [
   { code: '390000', name: '제주' },
 ];
 
-const HIRA_TO_KOSTAT = {
-  '110000': '11',
-  '210000': '21',
-  '220000': '22',
-  '230000': '23',
-  '240000': '24',
-  '250000': '25',
-  '260000': '26',
-  '410000': '29',
-  '310000': '31',
-  '320000': '32',
-  '330000': '33',
-  '340000': '34',
-  '350000': '35',
-  '360000': '36',
-  '370000': '37',
-  '380000': '38',
-  '390000': '39',
-};
-
-const LAYER_CONFIG = {
-  none: {
-    label: '마커만 보기',
-    description: '병의원 마커와 목록에만 집중해서 보기에 적합합니다.',
-  },
-  pop: {
-    label: '인구 분포',
-    descriptionNational: '전국 시도 단위 인구 규모를 비교합니다.',
-    descriptionLocal: '선택 지역의 시군구별 인구 규모를 비교합니다.',
-    gradFrom: 'rgb(219,234,255)',
-    gradTo: 'rgb(30,90,160)',
-    stroke: '#1769ff',
-  },
-  corp: {
-    label: '사업체 현황',
-    descriptionNational: '전국 시도 단위 사업체 규모를 비교합니다.',
-    descriptionLocal: '선택 지역의 시군구별 사업체 규모를 비교합니다.',
-    gradFrom: 'rgb(212,245,215)',
-    gradTo: 'rgb(27,120,50)',
-    stroke: '#2e8b57',
-  },
-  med: {
-    label: '의료업종 비율',
-    descriptionNational: '전국 시군구 단위 의료업종 비율을 비교합니다.',
-    descriptionLocal: '선택 지역의 시군구별 의료업종 비율을 비교합니다.',
-    gradFrom: 'rgb(255,235,220)',
-    gradTo: 'rgb(190,40,40)',
-    stroke: '#e65c4f',
-  },
-};
-
 const TYPE_GROUPS = [
   { label: '상급·종합병원', codes: ['01', '11'], color: '#d32f2f' },
   { label: '병원', codes: ['21', '28', '29'], color: '#f57c00' },
@@ -78,6 +27,53 @@ const TYPE_GROUPS = [
   { label: '한의원', codes: ['93'], color: '#9c4dcc' },
   { label: '보건소', codes: ['71', '72', '73', '75'], color: '#5d4037' },
 ];
+
+const LAYER_CONFIG = {
+  none: {
+    label: '마커만 보기',
+    description: '한의원 마커와 목록에만 집중해서 보기에 적합합니다.',
+  },
+  totalPopulation: {
+    label: '총인구',
+    description: '거주 수요의 절대 규모를 확인합니다.',
+    gradFrom: 'rgb(219,234,255)',
+    gradTo: 'rgb(29,92,175)',
+    stroke: '#1769ff',
+    valueType: 'count',
+  },
+  averageAge: {
+    label: '평균연령',
+    description: '평균연령이 높은 권역은 한의원 수요 구조와 잘 맞을 수 있습니다.',
+    gradFrom: 'rgb(255,239,214)',
+    gradTo: 'rgb(204,99,28)',
+    stroke: '#cf6a19',
+    valueType: 'age',
+  },
+  senior65Rate: {
+    label: '65세 이상 비율',
+    description: '고령층 비율이 높은 생활권을 비교합니다.',
+    gradFrom: 'rgb(255,231,231)',
+    gradTo: 'rgb(198,51,89)',
+    stroke: '#d33c6b',
+    valueType: 'percent',
+  },
+  workerCount: {
+    label: '종사자수',
+    description: '직장 배후 수요가 큰 권역을 확인합니다.',
+    gradFrom: 'rgb(221,247,232)',
+    gradTo: 'rgb(29,134,87)',
+    stroke: '#238858',
+    valueType: 'count',
+  },
+  apartmentRate: {
+    label: '아파트 비율',
+    description: '주거 밀도가 높고 안정적인 아파트 생활권을 비교합니다.',
+    gradFrom: 'rgb(238,232,255)',
+    gradTo: 'rgb(103,69,181)',
+    stroke: '#6c4ab7',
+    valueType: 'percent',
+  },
+};
 
 const CLUSTER_GRID = {
   5: 2.0,
@@ -95,6 +91,7 @@ const DATA_BASE_URL = './data';
 const RESULTS_DISPLAY_LIMIT = 300;
 const INITIAL_MAP_CENTER = { lat: 36.5, lng: 127.8, zoom: 7 };
 const MOBILE_MEDIA_QUERY = '(max-width: 960px)';
+const DEFAULT_ACTIVE_TYPES = new Set(['한의원']);
 
 const state = {
   map: null,
@@ -102,16 +99,16 @@ const state = {
   filteredData: [],
   cachedClusters: {},
   markers: [],
-  activeTypes: new Set(TYPE_GROUPS.map(group => group.label)),
+  activeTypes: new Set(DEFAULT_ACTIVE_TYPES),
   activeSido: '',
   searchText: '',
   selectedId: null,
-  sgisData: null,
-  activeLayer: 'pop',
+  marketData: null,
+  activeLayer: 'senior65Rate',
+  dongPolygons: [],
   sidoPolygons: [],
-  sggPolygons: [],
+  dongGeoCache: {},
   sidoGeoData: null,
-  sggGeoData: null,
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -121,8 +118,10 @@ document.addEventListener('DOMContentLoaded', () => {
   updateLayerDescription();
   updateSidebarSummary();
   updateMapOverlay();
-  loadAllData();
-  loadSgisData();
+
+  showLoading(true);
+  Promise.all([loadAllData(), loadMarketData()])
+    .finally(() => showLoading(false));
 });
 
 function initMap() {
@@ -155,11 +154,11 @@ function buildTypeFilters() {
   TYPE_GROUPS.forEach(group => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'filter-btn active';
+    button.className = 'filter-btn';
     button.dataset.type = group.label;
     button.textContent = group.label;
-    button.setAttribute('aria-pressed', 'true');
-    setTypeButtonState(button, true, group.color);
+    const isActive = state.activeTypes.has(group.label);
+    setTypeButtonState(button, isActive, group.color);
     button.addEventListener('click', () => toggleTypeFilter(group.label, button, group.color));
     container.appendChild(button);
   });
@@ -275,6 +274,8 @@ async function setSidoFilter(sidoCode, options = {}) {
   document.getElementById('sido-select').value = sidoCode;
   applyFilters();
   updateLayerDescription();
+  updateSidebarSummary();
+  updateMapOverlay();
   await updateLayer();
 
   if (options.fitToScope && sidoCode) {
@@ -289,7 +290,6 @@ async function setSidoFilter(sidoCode, options = {}) {
 }
 
 async function loadAllData() {
-  showLoading(true);
   try {
     const results = await Promise.allSettled(
       SIDO_LIST.map(sido =>
@@ -306,22 +306,20 @@ async function loadAllData() {
     }
     applyFilters();
   } catch (error) {
-    console.error('데이터 로드 오류:', error);
+    console.error('병의원 데이터 로드 오류:', error);
     renderNoData();
-  } finally {
-    showLoading(false);
   }
 }
 
-async function loadSgisData() {
+async function loadMarketData() {
   try {
-    const response = await fetch(`${DATA_BASE_URL}/sgis_stats.json`);
+    const response = await fetch(`${DATA_BASE_URL}/sgis_haniwon.json`);
     if (!response.ok) return;
-    const data = await response.json();
-    state.sgisData = data;
-    document.getElementById('legend-updated').textContent = data.updated ? `${data.updated}년 기준` : '';
+    state.marketData = await response.json();
+    document.getElementById('legend-updated').textContent = makeUpdatedText(state.marketData.updated || {});
     updateSidebarSummary();
-    updateLayer();
+    updateMapOverlay();
+    await updateLayer();
   } catch (error) {
     console.warn('SGIS 데이터 로드 오류:', error);
   }
@@ -497,14 +495,14 @@ function buildClusterIcon(count) {
 }
 
 async function updateLayer() {
+  clearPolygons(state.dongPolygons);
   clearPolygons(state.sidoPolygons);
-  clearPolygons(state.sggPolygons);
 
-  if (state.activeLayer === 'none' || !state.sgisData) return;
+  if (state.activeLayer === 'none' || !state.marketData) return;
 
   try {
-    if (state.activeLayer === 'med' || state.activeSido) {
-      await drawSggLayer(state.activeLayer, state.activeSido || null);
+    if (state.activeSido) {
+      await drawDongLayer(state.activeLayer, state.activeSido);
     } else {
       await drawSidoLayer(state.activeLayer);
     }
@@ -518,25 +516,34 @@ function clearPolygons(polygons) {
   polygons.length = 0;
 }
 
-function getLayerValue(data, layer) {
-  if (!data) return null;
-  if (layer === 'pop') return data.population || null;
-  if (layer === 'corp') return data.corp_cnt || null;
-  if (layer === 'med') return data.med_per ?? data.med_avg ?? null;
+function getLayerValue(entry, layer) {
+  if (!entry) return null;
+  if (layer === 'totalPopulation') return entry.totalPopulation ?? null;
+  if (layer === 'averageAge') return entry.averageAge ?? null;
+  if (layer === 'senior65Rate') return entry.senior65Rate ?? null;
+  if (layer === 'workerCount') return entry.workerCount ?? null;
+  if (layer === 'apartmentRate') return entry.apartmentRate ?? null;
   return null;
 }
 
 function getLayerColor(value, min, max, layer) {
   if (value == null) return 'rgb(230,230,230)';
   const ratio = max > min ? (value - min) / (max - min) : 0;
-  if (layer === 'pop') {
-    return `rgb(${Math.round(219 - ratio * 189)},${Math.round(234 - ratio * 144)},${Math.round(255 - ratio * 95)})`;
+
+  if (layer === 'totalPopulation') {
+    return `rgb(${Math.round(219 - ratio * 190)},${Math.round(234 - ratio * 142)},${Math.round(255 - ratio * 80)})`;
   }
-  if (layer === 'corp') {
-    return `rgb(${Math.round(212 - ratio * 185)},${Math.round(245 - ratio * 125)},${Math.round(215 - ratio * 165)})`;
+  if (layer === 'averageAge') {
+    return `rgb(${Math.round(255 - ratio * 51)},${Math.round(239 - ratio * 140)},${Math.round(214 - ratio * 186)})`;
   }
-  if (layer === 'med') {
-    return `rgb(${Math.round(255 - ratio * 65)},${Math.round(235 - ratio * 195)},${Math.round(220 - ratio * 180)})`;
+  if (layer === 'senior65Rate') {
+    return `rgb(${Math.round(255 - ratio * 57)},${Math.round(231 - ratio * 180)},${Math.round(231 - ratio * 142)})`;
+  }
+  if (layer === 'workerCount') {
+    return `rgb(${Math.round(221 - ratio * 192)},${Math.round(247 - ratio * 113)},${Math.round(232 - ratio * 145)})`;
+  }
+  if (layer === 'apartmentRate') {
+    return `rgb(${Math.round(238 - ratio * 135)},${Math.round(232 - ratio * 163)},${Math.round(255 - ratio * 74)})`;
   }
   return 'rgb(200,200,200)';
 }
@@ -557,18 +564,16 @@ function updateLegend(layer) {
 
 function updateLayerDescription() {
   const target = document.getElementById('layer-description');
-  if (state.activeLayer === 'none') {
-    target.textContent = LAYER_CONFIG.none.description;
-    return;
-  }
+  target.textContent = LAYER_CONFIG[state.activeLayer].description;
+}
 
-  const config = LAYER_CONFIG[state.activeLayer];
-  if (state.activeLayer === 'med') {
-    target.textContent = state.activeSido ? config.descriptionLocal : config.descriptionNational;
-    return;
-  }
-
-  target.textContent = state.activeSido ? config.descriptionLocal : config.descriptionNational;
+async function loadDongGeo(sidoCode) {
+  if (!sidoCode) return null;
+  if (state.dongGeoCache[sidoCode]) return state.dongGeoCache[sidoCode];
+  const response = await fetch(`${DATA_BASE_URL}/dong_geo_sido/${sidoCode}.json`);
+  const data = await response.json();
+  state.dongGeoCache[sidoCode] = data;
+  return data;
 }
 
 async function loadSidoGeo() {
@@ -576,13 +581,6 @@ async function loadSidoGeo() {
   const response = await fetch(`${DATA_BASE_URL}/sido_geo.json`);
   state.sidoGeoData = await response.json();
   return state.sidoGeoData;
-}
-
-async function loadSggGeo() {
-  if (state.sggGeoData) return state.sggGeoData;
-  const response = await fetch(`${DATA_BASE_URL}/sgg_geo.json`);
-  state.sggGeoData = await response.json();
-  return state.sggGeoData;
 }
 
 let choroplethInfo = null;
@@ -597,62 +595,14 @@ function getChoroplethInfo() {
   return choroplethInfo;
 }
 
-async function drawSidoLayer(layer) {
-  const geo = await loadSidoGeo();
-  const features = geo.features || [];
+async function drawDongLayer(layer, sidoCode) {
+  const geo = await loadDongGeo(sidoCode);
+  if (!geo) return;
+  const marketDong = state.marketData?.dong || {};
+  const features = geo.features;
+
   const values = features
-    .map(feature => {
-      const kostatCode = HIRA_TO_KOSTAT[feature.properties.sidoCd];
-      return getLayerValue(buildSidoSummary(kostatCode), layer);
-    })
-    .filter(value => value != null);
-
-  const minValue = values.length ? Math.min(...values) : 0;
-  const maxValue = values.length ? Math.max(...values) : 1;
-  const info = getChoroplethInfo();
-
-  features.forEach(feature => {
-    const sidoCode = feature.properties.sidoCd;
-    const name = feature.properties.name || getSidoNameByCode(sidoCode);
-    const summary = buildSidoSummary(HIRA_TO_KOSTAT[sidoCode]);
-    const value = getLayerValue(summary, layer);
-    const color = getLayerColor(value, minValue, maxValue, layer);
-
-    geoJsonToPolygons(feature.geometry, {
-      fillColor: color,
-      fillOpacity: 0.62,
-      strokeColor: '#fff',
-      strokeWeight: 1.5,
-      strokeOpacity: 0.85,
-      zIndex: 10,
-    }).forEach(polygon => {
-      polygon.setMap(state.map);
-      naver.maps.Event.addListener(polygon, 'mouseover', event => {
-        polygon.setOptions({ strokeWeight: 3, strokeColor: LAYER_CONFIG[layer].stroke });
-        info.setContent(makeTipContent(name, summary, layer, { medLabel: '평균 의료업종 비율' }));
-        info.open(state.map, event.coord);
-      });
-      naver.maps.Event.addListener(polygon, 'mouseout', () => {
-        polygon.setOptions({ strokeWeight: 1.5, strokeColor: '#fff' });
-        info.close();
-      });
-      naver.maps.Event.addListener(polygon, 'click', async () => {
-        await setSidoFilter(sidoCode);
-        focusGeometry(feature.geometry);
-      });
-      state.sidoPolygons.push(polygon);
-    });
-  });
-}
-
-async function drawSggLayer(layer, sidoCode) {
-  const geo = await loadSggGeo();
-  const features = sidoCode
-    ? geo.features.filter(feature => feature.properties.sidoCd === sidoCode)
-    : geo.features;
-  const stats = state.sgisData.sgg || {};
-  const values = features
-    .map(feature => getLayerValue(stats[feature.properties.code], layer))
+    .map(feature => getLayerValue(marketDong[feature.properties.code], layer))
     .filter(value => value != null);
 
   const minValue = values.length ? Math.min(...values) : 0;
@@ -661,8 +611,8 @@ async function drawSggLayer(layer, sidoCode) {
 
   features.forEach(feature => {
     const code = feature.properties.code;
-    const data = stats[code] || null;
-    const value = getLayerValue(data, layer);
+    const areaData = marketDong[code] || null;
+    const value = getLayerValue(areaData, layer);
     const color = getLayerColor(value, minValue, maxValue, layer);
     const name = feature.properties.name;
 
@@ -670,46 +620,140 @@ async function drawSggLayer(layer, sidoCode) {
       fillColor: color,
       fillOpacity: 0.65,
       strokeColor: '#fff',
-      strokeWeight: 0.8,
-      strokeOpacity: 0.75,
-      zIndex: 10,
+      strokeWeight: 0.55,
+      strokeOpacity: 0.55,
+      zIndex: 8,
     }).forEach(polygon => {
       polygon.setMap(state.map);
       naver.maps.Event.addListener(polygon, 'mouseover', event => {
-        polygon.setOptions({ strokeWeight: 2, strokeColor: LAYER_CONFIG[layer].stroke });
-        info.setContent(makeTipContent(name, data, layer));
+        polygon.setOptions({ strokeWeight: 1.6, strokeColor: LAYER_CONFIG[layer].stroke, strokeOpacity: 0.9 });
+        info.setContent(makeAreaTipContent(name, areaData, layer));
         info.open(state.map, event.coord);
       });
       naver.maps.Event.addListener(polygon, 'mouseout', () => {
-        polygon.setOptions({ strokeWeight: 0.8, strokeColor: '#fff' });
+        polygon.setOptions({ strokeWeight: 0.55, strokeColor: '#fff', strokeOpacity: 0.55 });
         info.close();
       });
-      naver.maps.Event.addListener(polygon, 'click', async () => {
-        if (!sidoCode && feature.properties.sidoCd) {
-          await setSidoFilter(feature.properties.sidoCd);
-        }
-        focusGeometry(feature.geometry);
-      });
-      state.sggPolygons.push(polygon);
+      naver.maps.Event.addListener(polygon, 'click', () => focusGeometry(feature.geometry));
+      state.dongPolygons.push(polygon);
     });
   });
 }
 
-function makeTipContent(name, data, layer, options = {}) {
-  if (!data) {
+function getSidoAggregates() {
+  const grouped = {};
+
+  Object.values(state.marketData?.dong || {}).forEach(entry => {
+    if (!entry.sidoCd) return;
+    if (!grouped[entry.sidoCd]) {
+      grouped[entry.sidoCd] = {
+        sidoCd: entry.sidoCd,
+        name: entry.sidoName,
+        totalPopulation: 0,
+        workerCount: 0,
+        _ageNumerator: 0,
+        _ageDenominator: 0,
+        _seniorNumerator: 0,
+        _seniorDenominator: 0,
+        _apartmentNumerator: 0,
+        _apartmentDenominator: 0,
+      };
+    }
+
+    const target = grouped[entry.sidoCd];
+    if (entry.totalPopulation != null) {
+      target.totalPopulation += Number(entry.totalPopulation);
+      if (entry.averageAge != null) {
+        target._ageNumerator += Number(entry.averageAge) * Number(entry.totalPopulation);
+        target._ageDenominator += Number(entry.totalPopulation);
+      }
+      if (entry.senior65Rate != null) {
+        target._seniorNumerator += Number(entry.senior65Rate) * Number(entry.totalPopulation);
+        target._seniorDenominator += Number(entry.totalPopulation);
+      }
+    }
+    if (entry.totalFamilies != null && entry.apartmentRate != null) {
+      target._apartmentNumerator += Number(entry.apartmentRate) * Number(entry.totalFamilies);
+      target._apartmentDenominator += Number(entry.totalFamilies);
+    }
+    if (entry.workerCount != null) {
+      target.workerCount += Number(entry.workerCount);
+    }
+  });
+
+  Object.values(grouped).forEach(entry => {
+    entry.averageAge = entry._ageDenominator ? entry._ageNumerator / entry._ageDenominator : null;
+    entry.senior65Rate = entry._seniorDenominator ? entry._seniorNumerator / entry._seniorDenominator : null;
+    entry.apartmentRate = entry._apartmentDenominator ? entry._apartmentNumerator / entry._apartmentDenominator : null;
+    delete entry._ageNumerator;
+    delete entry._ageDenominator;
+    delete entry._seniorNumerator;
+    delete entry._seniorDenominator;
+    delete entry._apartmentNumerator;
+    delete entry._apartmentDenominator;
+  });
+
+  return grouped;
+}
+
+async function drawSidoLayer(layer) {
+  const geo = await loadSidoGeo();
+  const marketSido = getSidoAggregates();
+  const values = geo.features
+    .map(feature => getLayerValue(marketSido[feature.properties.sidoCd], layer))
+    .filter(value => value != null);
+
+  const minValue = values.length ? Math.min(...values) : 0;
+  const maxValue = values.length ? Math.max(...values) : 1;
+  const info = getChoroplethInfo();
+
+  geo.features.forEach(feature => {
+    const sidoCode = feature.properties.sidoCd;
+    const areaData = marketSido[sidoCode] || null;
+    const value = getLayerValue(areaData, layer);
+    const color = getLayerColor(value, minValue, maxValue, layer);
+    const name = feature.properties.name;
+
+    geoJsonToPolygons(feature.geometry, {
+      fillColor: color,
+      fillOpacity: 0.62,
+      strokeColor: '#fff',
+      strokeWeight: 0.9,
+      strokeOpacity: 0.75,
+      zIndex: 7,
+    }).forEach(polygon => {
+      polygon.setMap(state.map);
+      naver.maps.Event.addListener(polygon, 'mouseover', event => {
+        polygon.setOptions({ strokeWeight: 1.8, strokeColor: LAYER_CONFIG[layer].stroke, strokeOpacity: 0.95 });
+        info.setContent(makeAreaTipContent(name, areaData, layer));
+        info.open(state.map, event.coord);
+      });
+      naver.maps.Event.addListener(polygon, 'mouseout', () => {
+        polygon.setOptions({ strokeWeight: 0.9, strokeColor: '#fff', strokeOpacity: 0.75 });
+        info.close();
+      });
+      naver.maps.Event.addListener(polygon, 'click', () => {
+        void setSidoFilter(sidoCode, { fitToScope: true });
+      });
+      state.sidoPolygons.push(polygon);
+    });
+  });
+}
+
+function makeAreaTipContent(name, areaData, layer) {
+  if (!areaData) {
     return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong><div class="tip-sub">데이터 없음</div></div>`;
   }
 
-  const medValue = data.med_per ?? data.med_avg ?? null;
-  const medLabel = options.medLabel || '의료업종 비율';
   const rows = [
-    buildTipRow('인구', data.population, value => `${value.toLocaleString()}명`, layer === 'pop'),
-    buildTipRow('사업체', data.corp_cnt, value => `${value.toLocaleString()}개`, layer === 'corp'),
-    buildTipRow('종사자', data.tot_worker, value => `${value.toLocaleString()}명`, false),
-    buildTipRow(medLabel, medValue, value => `${Number(value).toFixed(2)}%`, layer === 'med'),
+    buildTipRow('총인구', areaData.totalPopulation, value => `${Number(value).toLocaleString()}명`, layer === 'totalPopulation'),
+    buildTipRow('평균연령', areaData.averageAge, value => `${Number(value).toFixed(1)}세`, layer === 'averageAge'),
+    buildTipRow('65세 이상', areaData.senior65Rate, value => `${Number(value).toFixed(2)}%`, layer === 'senior65Rate'),
+    buildTipRow('종사자수', areaData.workerCount, value => `${Number(value).toLocaleString()}명`, layer === 'workerCount'),
+    buildTipRow('아파트 비율', areaData.apartmentRate, value => `${Number(value).toFixed(2)}%`, layer === 'apartmentRate'),
   ].filter(Boolean).join('');
 
-  return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong>${rows || '<div class="tip-sub">데이터 없음</div>'}</div>`;
+  return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong>${rows}</div>`;
 }
 
 function buildTipRow(label, value, formatter, isActive) {
@@ -752,7 +796,7 @@ function renderResultsList() {
     const color = group ? group.color : '#888';
     const region = [item.sidoCdNm, item.sgguCdNm].filter(Boolean).join(' ');
     const meta = [];
-    if (item.drTotCnt) meta.push(`의사 ${Number(item.drTotCnt).toLocaleString()}명`);
+    if (item.drTotCnt) meta.push(`한의사 ${Number(item.drTotCnt).toLocaleString()}명`);
     if (item.estbDd) meta.push(`개설 ${formatDate(item.estbDd)}`);
 
     return `
@@ -808,12 +852,12 @@ function highlightListItem(id) {
 function showInfoPanel(item) {
   const group = getGroupByCode(item.clCd);
   const color = group ? group.color : '#666';
-  const rows = buildInfoRows(item);
   const areaStats = findAreaStatsByItem(item);
-  const marketCard = areaStats ? buildAreaStatsCard(item, areaStats) : '';
+  const rows = buildInfoRows(item, areaStats);
+  const marketCard = areaStats ? buildAreaStatsCard(areaStats) : '';
 
   document.getElementById('info-content').innerHTML = `
-    <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '병의원')}</div>
+    <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '한의원')}</div>
     <div class="info-name">${escapeHtml(item.name || '')}</div>
     ${marketCard}
     <div class="info-divider"></div>
@@ -829,7 +873,7 @@ function showInfoPanel(item) {
   document.getElementById('info-content').scrollTop = 0;
 }
 
-function buildInfoRows(item) {
+function buildInfoRows(item, areaStats) {
   const rows = [];
 
   if (item.addr) rows.push({ label: '주소', html: escapeHtml(item.addr) });
@@ -848,7 +892,7 @@ function buildInfoRows(item) {
   }
   if (item.estbDd) rows.push({ label: '개설일', html: escapeHtml(formatDate(item.estbDd)) });
   if (item.drTotCnt) {
-    const doctorText = `의사 ${Number(item.drTotCnt).toLocaleString()}명`
+    const doctorText = `한의사 ${Number(item.drTotCnt).toLocaleString()}명`
       + (item.mdeptSdrCnt ? ` · 전문의 ${Number(item.mdeptSdrCnt).toLocaleString()}명` : '');
     rows.push({ label: '의료진', html: escapeHtml(doctorText) });
   }
@@ -858,27 +902,38 @@ function buildInfoRows(item) {
       html: escapeHtml([item.sidoCdNm, item.sgguCdNm].filter(Boolean).join(' ')),
     });
   }
+  if (areaStats) {
+    const supportText = [
+      areaStats.workerCount != null ? `종사자 ${Number(areaStats.workerCount).toLocaleString()}명` : '',
+      areaStats.apartmentRate != null ? `아파트 ${Number(areaStats.apartmentRate).toFixed(1)}%` : '',
+      areaStats.femaleRate != null ? `여성 ${Number(areaStats.femaleRate).toFixed(1)}%` : '',
+      areaStats.onePersonHouseholdRate != null ? `1인가구 ${Number(areaStats.onePersonHouseholdRate).toFixed(1)}%` : '',
+    ].filter(Boolean).join(' · ');
+    if (supportText) {
+      rows.push({ label: '보조지표', html: escapeHtml(supportText) });
+    }
+  }
 
   return rows;
 }
 
-function buildAreaStatsCard(item, stats) {
-  const title = [item.sidoCdNm, stats.name].filter(Boolean).join(' ');
+function buildAreaStatsCard(areaStats) {
+  const title = [areaStats.sidoName, areaStats.sggName, areaStats.name].filter(Boolean).join(' ');
   return `
     <div class="info-market-card">
-      <h3>${escapeHtml(title)} 입지 데이터</h3>
+      <h3>${escapeHtml(title)} 입지 요약</h3>
       <div class="info-market-grid">
         <div class="info-market-metric">
-          <span>인구</span>
-          <strong>${escapeHtml(formatFullCount(stats.population, '명'))}</strong>
+          <span>총인구</span>
+          <strong>${escapeHtml(formatFullCount(areaStats.totalPopulation, '명'))}</strong>
         </div>
         <div class="info-market-metric">
-          <span>사업체</span>
-          <strong>${escapeHtml(formatFullCount(stats.corp_cnt, '개'))}</strong>
+          <span>평균연령</span>
+          <strong>${escapeHtml(formatAge(areaStats.averageAge))}</strong>
         </div>
         <div class="info-market-metric">
-          <span>의료업종 비율</span>
-          <strong>${escapeHtml(formatPercent(stats.med_per))}</strong>
+          <span>65세 이상</span>
+          <strong>${escapeHtml(formatPercent(areaStats.senior65Rate))}</strong>
         </div>
       </div>
     </div>
@@ -886,15 +941,43 @@ function buildAreaStatsCard(item, stats) {
 }
 
 function findAreaStatsByItem(item) {
-  if (!state.sgisData || !item.sidoCd || !item.sgguCdNm) return null;
+  if (!state.marketData?.dong || !item.sidoCd || !item.sgguCdNm || !item.addr) return null;
 
-  const sidoCode = HIRA_TO_KOSTAT[item.sidoCd];
-  const targetName = normalizeRegionName(item.sgguCdNm);
-  if (!sidoCode || !targetName) return null;
+  const targetSgg = normalizeRegionName(item.sgguCdNm);
+  const candidates = extractDongCandidates(item.addr);
+  if (!candidates.length) return null;
 
-  return Object.values(state.sgisData.sgg || {}).find(entry =>
-    entry.sido === sidoCode && normalizeRegionName(entry.name) === targetName
-  ) || null;
+  const scoped = Object.values(state.marketData.dong).filter(entry =>
+    entry.sidoCd === item.sidoCd && normalizeRegionName(entry.sggName) === targetSgg
+  );
+  if (!scoped.length) return null;
+
+  for (const candidate of candidates) {
+    const normalized = normalizeRegionName(candidate);
+    const matched = scoped.find(entry => normalizeRegionName(entry.name) === normalized);
+    if (matched) return matched;
+  }
+  return null;
+}
+
+function extractDongCandidates(address) {
+  const results = new Set();
+  const text = String(address || '');
+
+  const parenMatch = text.match(/\(([^)]+)\)/g) || [];
+  parenMatch.forEach(token => {
+    token.replace(/[()]/g, '')
+      .split(/[,\s/]+/)
+      .map(part => part.trim())
+      .filter(Boolean)
+      .forEach(part => {
+        if (/(동|읍|면)$/.test(part)) results.add(part);
+      });
+  });
+
+  const inlineMatches = text.match(/[가-힣0-9·]+(?:동|읍|면)/g) || [];
+  inlineMatches.forEach(match => results.add(match.trim()));
+  return Array.from(results);
 }
 
 function normalizeRegionName(name) {
@@ -916,13 +999,14 @@ function updateSidebarSummary() {
     : '0';
 
   document.getElementById('summary-scope-value').textContent = getSelectedSidoName() || '전국';
-  document.getElementById('summary-scope-desc').textContent = getScopeDescription();
+  document.getElementById('summary-scope-desc').textContent = state.activeSido
+    ? '선택 지역의 읍면동 입지 비교 중'
+    : '전국 읍면동 입지 비교 중';
 
-  const layerLabel = LAYER_CONFIG[state.activeLayer].label;
-  document.getElementById('summary-layer-value').textContent = layerLabel;
+  document.getElementById('summary-layer-value').textContent = LAYER_CONFIG[state.activeLayer].label;
   document.getElementById('summary-layer-desc').textContent = state.activeLayer === 'none'
-    ? '병의원 마커만 표시합니다.'
-    : '병의원 마커와 함께 배경 데이터가 표시됩니다.';
+    ? '한의원 마커만 표시합니다.'
+    : '한의원 수요와 연결되는 SGIS 지표를 표시합니다.';
 
   const insight = getScopeInsights();
   document.getElementById('insight-scope-title').textContent = `${insight.name} 요약`;
@@ -930,69 +1014,56 @@ function updateSidebarSummary() {
   document.getElementById('insight-population').textContent = insight.population != null
     ? `${formatCompactNumber(insight.population)}명`
     : '-';
-  document.getElementById('insight-businesses').textContent = insight.corpCnt != null
-    ? `${formatCompactNumber(insight.corpCnt)}개`
+  document.getElementById('insight-average-age').textContent = insight.averageAge != null
+    ? formatAge(insight.averageAge)
     : '-';
-  document.getElementById('insight-medical').textContent = insight.medRate != null
-    ? formatPercent(insight.medRate)
+  document.getElementById('insight-senior-rate').textContent = insight.seniorRate != null
+    ? formatPercent(insight.seniorRate)
     : '-';
   document.getElementById('insight-note').textContent = insight.note;
 }
 
 function getScopeInsights() {
   const scopeName = getSelectedSidoName() || '전국';
-  if (!state.sgisData) {
+  const scopedEntries = getScopedMarketEntries();
+  if (!scopedEntries.length) {
     return {
       name: scopeName,
       badge: 'SGIS 데이터 로딩 중',
       population: null,
-      corpCnt: null,
-      medRate: null,
-      note: 'SGIS 데이터를 불러오면 입지 지표가 표시됩니다.',
+      averageAge: null,
+      seniorRate: null,
+      note: 'SGIS 데이터를 불러오면 한의원 입지 지표가 표시됩니다.',
     };
   }
 
-  const sggItems = Object.values(state.sgisData.sgg || {});
-  if (state.activeSido) {
-    const kostatCode = HIRA_TO_KOSTAT[state.activeSido];
-    const sidoData = state.sgisData.sido?.[kostatCode] || null;
-    const currentSgg = sggItems.filter(item => item.sido === kostatCode);
-    const medRate = average(currentSgg.map(item => item.med_per).filter(value => value != null));
-    const workers = sidoData?.tot_worker ?? sum(currentSgg.map(item => item.tot_worker || 0));
-    return {
-      name: scopeName,
-      badge: `시군구 ${currentSgg.length}개`,
-      population: sidoData?.population ?? sum(currentSgg.map(item => item.population || 0)),
-      corpCnt: sidoData?.corp_cnt ?? sum(currentSgg.map(item => item.corp_cnt || 0)),
-      medRate,
-      note: workers
-        ? `종사자 ${formatFullCount(workers, '명')} 기준으로 지역 입지를 비교할 수 있습니다.`
-        : '선택 지역의 시군구 단위 지표를 비교합니다.',
-    };
-  }
-
-  const sidoItems = Object.values(state.sgisData.sido || {});
-  const medRate = average(sggItems.map(item => item.med_per).filter(value => value != null));
-  const workers = sum(sidoItems.map(item => item.tot_worker || 0));
-  const scopeBadge = state.activeLayer === 'med' ? '시군구 252개' : '시도 17개';
+  const totalPopulation = sum(scopedEntries.map(entry => entry.totalPopulation || 0));
+  const weightedAverageAge = weightedAverage(scopedEntries, 'averageAge', 'totalPopulation');
+  const weightedSeniorRate = weightedAverage(scopedEntries, 'senior65Rate', 'totalPopulation');
+  const weightedApartmentRate = weightedAverage(scopedEntries, 'apartmentRate', 'totalFamilies');
+  const weightedFemaleRate = weightedAverage(scopedEntries, 'femaleRate', 'totalPopulation');
+  const totalWorkers = sum(scopedEntries.map(entry => entry.workerCount || 0));
 
   return {
     name: scopeName,
-    badge: scopeBadge,
-    population: sum(sidoItems.map(item => item.population || 0)),
-    corpCnt: sum(sidoItems.map(item => item.corp_cnt || 0)),
-    medRate,
-    note: workers
-      ? `종사자 ${formatFullCount(workers, '명')}를 포함한 전국 기준 요약입니다.`
-      : '전국 기준 지표를 비교합니다.',
+    badge: `읍면동 ${scopedEntries.length.toLocaleString()}개`,
+    population: totalPopulation,
+    averageAge: weightedAverageAge,
+    seniorRate: weightedSeniorRate,
+    note: [
+      totalWorkers ? `종사자 ${formatFullCount(totalWorkers, '명')}` : '',
+      weightedApartmentRate != null ? `아파트 ${formatPercent(weightedApartmentRate)}` : '',
+      weightedFemaleRate != null ? `여성 ${formatPercent(weightedFemaleRate)}` : '',
+    ].filter(Boolean).join(' · ') || '현재 범위의 주요 입지 지표를 확인할 수 있습니다.',
   };
 }
 
-function getScopeDescription() {
-  if (state.activeLayer === 'none') {
-    return state.activeSido ? '선택 지역의 병의원만 보고 있습니다.' : '전국 병의원 마커를 보고 있습니다.';
-  }
-  return (state.activeLayer === 'med' || state.activeSido) ? '시군구 단위 비교 중' : '시도 단위 비교 중';
+function getScopedMarketEntries() {
+  if (!state.marketData?.dong) return [];
+  const entries = Object.values(state.marketData.dong);
+  return state.activeSido
+    ? entries.filter(entry => entry.sidoCd === state.activeSido)
+    : entries;
 }
 
 function updateMapOverlay() {
@@ -1002,37 +1073,22 @@ function updateMapOverlay() {
 
 function getMapLayerLabel() {
   if (state.activeLayer === 'none') {
-    return '병의원 마커만 표시';
+    return '한의원 마커만 표시';
   }
-  const layerLabel = LAYER_CONFIG[state.activeLayer].label;
-  const layerScope = (state.activeLayer === 'med' || state.activeSido) ? '시군구 단위' : '시도 단위';
-  return `${layerLabel} · ${layerScope}`;
+  return `${LAYER_CONFIG[state.activeLayer].label} · 읍면동 단위`;
 }
 
-function buildSidoSummary(kostatCode) {
-  if (!state.sgisData || !kostatCode) return null;
-  const base = state.sgisData.sido?.[kostatCode] || null;
-  if (!base) return null;
-
-  const sggItems = Object.values(state.sgisData.sgg || {}).filter(item => item.sido === kostatCode);
-  return {
-    ...base,
-    med_avg: average(sggItems.map(item => item.med_per).filter(value => value != null)),
-  };
-}
-
-function getSelectedSidoName() {
-  return SIDO_LIST.find(item => item.code === state.activeSido)?.name || '';
-}
-
-function getSidoNameByCode(code) {
-  return SIDO_LIST.find(item => item.code === code)?.name || code;
+function makeUpdatedText(updated) {
+  const parts = [];
+  if (updated.populationYear) parts.push(`인구 ${updated.populationYear}`);
+  if (updated.companyYear) parts.push(`사업체 ${updated.companyYear}`);
+  return parts.length ? `${parts.join(' / ')} 기준` : '';
 }
 
 function resetFilters() {
   state.searchText = '';
   state.activeSido = '';
-  state.activeTypes = new Set(TYPE_GROUPS.map(group => group.label));
+  state.activeTypes = new Set(DEFAULT_ACTIVE_TYPES);
 
   document.getElementById('search-input').value = '';
   document.getElementById('search-clear').classList.remove('visible');
@@ -1040,7 +1096,9 @@ function resetFilters() {
 
   document.querySelectorAll('.filter-btn').forEach(button => {
     const group = TYPE_GROUPS.find(item => item.label === button.dataset.type);
-    if (group) setTypeButtonState(button, true, group.color);
+    if (!group) return;
+    const isActive = DEFAULT_ACTIVE_TYPES.has(group.label);
+    setTypeButtonState(button, isActive, group.color);
   });
 
   closeInfoPanel();
@@ -1048,6 +1106,8 @@ function resetFilters() {
   state.map.setZoom(INITIAL_MAP_CENTER.zoom);
   applyFilters();
   updateLayerDescription();
+  updateSidebarSummary();
+  updateMapOverlay();
   updateLayer();
 }
 
@@ -1113,6 +1173,10 @@ function getGroupByCode(code) {
   return TYPE_GROUPS.find(group => group.codes.includes(code));
 }
 
+function getSelectedSidoName() {
+  return SIDO_LIST.find(item => item.code === state.activeSido)?.name || '';
+}
+
 function formatDate(value) {
   if (!value || String(value).length < 8) return String(value || '');
   const text = String(value);
@@ -1121,6 +1185,10 @@ function formatDate(value) {
 
 function formatPercent(value) {
   return value == null ? '-' : `${Number(value).toFixed(2)}%`;
+}
+
+function formatAge(value) {
+  return value == null ? '-' : `${Number(value).toFixed(1)}세`;
 }
 
 function formatFullCount(value, unit) {
@@ -1144,9 +1212,17 @@ function sum(values) {
   return values.reduce((total, value) => total + Number(value || 0), 0);
 }
 
-function average(values) {
-  if (!values.length) return null;
-  return values.reduce((total, value) => total + Number(value || 0), 0) / values.length;
+function weightedAverage(entries, valueKey, weightKey) {
+  let numerator = 0;
+  let denominator = 0;
+  entries.forEach(entry => {
+    const value = entry[valueKey];
+    const weight = entry[weightKey];
+    if (value == null || weight == null || Number(weight) <= 0) return;
+    numerator += Number(value) * Number(weight);
+    denominator += Number(weight);
+  });
+  return denominator > 0 ? numerator / denominator : null;
 }
 
 function escapeHtml(value) {

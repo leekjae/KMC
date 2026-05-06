@@ -1,194 +1,455 @@
 """
-SGIS(통계지리정보서비스) 데이터 수집
-- 센서스 인구통계 (시도/시군구/읍면동)
-- 사업체 통계 (시도/시군구)
-- 생활업종 분포 - 의료업종 비율 (시군구)
+한의원 입지 분석용 SGIS 데이터 수집 스크립트
 
-출력: data/sgis_stats.json
+수집 대상(읍면동 단위):
+- 총조사 주요지표: 총인구, 평균연령, 노령화지수, 총가구, 총주택
+- 사업체통계: 사업체수, 종사자수
+- 생활업종 후보지 정보: 아파트 비율, 1인가구 비율, 65세 이상 비율,
+  거주/직장 인구 성격
+- 성별인구비율 요약정보: 여성 비율, 여성 인구
+
+출력:
+- data/sgis_haniwon.json
 
 사용법:
   python scripts/fetch_sgis.py
-로컬 개발: .env 파일에 SGIS_KEY, SGIS_SECRET 저장
-GitHub Actions: Secrets에 SGIS_KEY, SGIS_SECRET 등록
 """
-import requests, json, os, sys, time, urllib.request
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
 from pathlib import Path
 
-_env_path = Path(__file__).parent.parent / '.env'
-if _env_path.exists():
-    for line in _env_path.read_text(encoding='utf-8').splitlines():
+import requests
+
+BASE = "https://sgisapi.mods.go.kr/OpenAPI3"
+ROOT_DIR = Path(__file__).parent.parent
+DATA_DIR = ROOT_DIR / "data"
+DONG_GEO_PATH = DATA_DIR / "dong_geo.json"
+SGG_GEO_PATH = DATA_DIR / "sgg_geo.json"
+OUTPUT_PATH = DATA_DIR / "sgis_haniwon.json"
+REQUEST_TIMEOUT = 30
+RETRY_COUNT = 4
+REQUEST_DELAY = 0.03
+
+HIRA_TO_KOSTAT = {
+    "110000": "11",
+    "210000": "21",
+    "220000": "22",
+    "230000": "23",
+    "240000": "24",
+    "250000": "25",
+    "260000": "26",
+    "410000": "29",
+    "310000": "31",
+    "320000": "32",
+    "330000": "33",
+    "340000": "34",
+    "350000": "35",
+    "360000": "36",
+    "370000": "37",
+    "380000": "38",
+    "390000": "39",
+}
+
+HIRA_TO_SIDO_NAME = {
+    "110000": "서울",
+    "210000": "부산",
+    "220000": "대구",
+    "230000": "인천",
+    "240000": "광주",
+    "250000": "대전",
+    "260000": "울산",
+    "410000": "세종",
+    "310000": "경기",
+    "320000": "강원",
+    "330000": "충북",
+    "340000": "충남",
+    "350000": "전북",
+    "360000": "전남",
+    "370000": "경북",
+    "380000": "경남",
+    "390000": "제주",
+}
+
+
+def load_env_file() -> None:
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if line and not line.startswith('#') and '=' in line:
-            k, v = line.split('=', 1)
-            os.environ.setdefault(k.strip(), v.strip())
-
-SGIS_KEY    = os.environ.get('SGIS_KEY', '').strip()
-SGIS_SECRET = os.environ.get('SGIS_SECRET', '').strip()
-BASE        = 'https://sgisapi.mods.go.kr/OpenAPI3'
-DATA_DIR    = Path(__file__).parent.parent / 'data'
-
-SUBMUNICIPALITIES_URL = (
-    'https://raw.githubusercontent.com/southkorea/southkorea-maps/'
-    'master/kostat/2013/json/skorea_submunicipalities_geo.json'
-)
-
-# 의료업종 코드: 병원, 약국, 한방병원
-MEDICAL_CODES = {'9003', 'J002', 'J003'}
-
-# SGIS 시도 코드 목록 (KOSTAT)
-SIDO_CODES = ['11','21','22','23','24','25','26','29',
-              '31','32','33','34','35','36','37','38','39']
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
 
 
-def get_token() -> str:
-    r = requests.get(f'{BASE}/auth/authentication.json',
-        params={'consumer_key': SGIS_KEY, 'consumer_secret': SGIS_SECRET}, timeout=15)
-    d = r.json()
-    if d.get('errCd') != 0:
-        raise RuntimeError(f'인증 실패: {d.get("errMsg")}')
-    return d['result']['accessToken']
+load_env_file()
+
+SGIS_KEY = os.environ.get("SGIS_KEY", "").strip()
+SGIS_SECRET = os.environ.get("SGIS_SECRET", "").strip()
 
 
-def call(token: str, path: str, extra: dict = None) -> list:
-    params = {'accessToken': token}
-    if extra:
-        params.update(extra)
-    r = requests.get(f'{BASE}/{path}', params=params, timeout=20)
+def to_int(value) -> int | None:
     try:
-        d = r.json()
-    except Exception:
+        if value in (None, "", "N/A"):
+            return None
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def to_float(value) -> float | None:
+    try:
+        if value in (None, "", "N/A"):
+            return None
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def ensure_list(value) -> list:
+    if value is None:
         return []
-    if d.get('errCd') != 0:
-        return []
-    items = d.get('result', [])
-    return items if isinstance(items, list) else ([items] if items else [])
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    return []
 
 
-def med_per_from_result(result: list, adm_cd: str) -> float:
-    """corpdistsummary 결과에서 의료업종 비율 합산"""
-    target = next((it for it in result if str(it.get('adm_cd', '')) == adm_cd), None)
-    if target is None and result:
-        target = result[0]
-    if not target:
-        return 0.0
-    return round(sum(
-        float(t.get('dist_per', 0) or 0)
-        for t in target.get('theme_list', [])
-        if str(t.get('theme_cd', '')) in MEDICAL_CODES
-    ), 3)
+def normalize_area_name(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = text.split()[-1]
+    return text.replace(" ", "")
 
 
-def main():
+def normalize_stats_adm_cd(value: str) -> str:
+    text = str(value or "").strip()
+    if len(text) >= 8:
+        return text[:7]
+    return text[:7]
+
+
+def to_startupbiz_adm_cd(value: str) -> str:
+    text = normalize_stats_adm_cd(value)
+    return f"{text}0" if len(text) == 7 else ""
+
+
+class SgisClient:
+    def __init__(self, key: str, secret: str) -> None:
+        self.key = key
+        self.secret = secret
+        self.session = requests.Session()
+        self.token = ""
+
+    def authenticate(self) -> None:
+        response = self.session.get(
+            f"{BASE}/auth/authentication.json",
+            params={"consumer_key": self.key, "consumer_secret": self.secret},
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("errCd") != 0:
+            raise RuntimeError(f"SGIS 인증 실패: {data.get('errMsg')}")
+        self.token = data["result"]["accessToken"]
+
+    def get(self, path: str, extra: dict | None = None, allow_empty: bool = False):
+        if not self.token:
+            self.authenticate()
+
+        params = {"accessToken": self.token}
+        if extra:
+            params.update(extra)
+
+        last_error = None
+        for attempt in range(RETRY_COUNT):
+            try:
+                response = self.session.get(
+                    f"{BASE}/{path}",
+                    params=params,
+                    timeout=REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("errCd") == 0:
+                    return data.get("result")
+
+                if allow_empty and data.get("errCd") == -100:
+                    return []
+
+                # 만료 토큰 등 재인증이 필요한 경우
+                if attempt < RETRY_COUNT - 1:
+                    self.authenticate()
+                    params["accessToken"] = self.token
+                    time.sleep(0.5 + attempt * 0.5)
+                    continue
+
+                last_error = RuntimeError(
+                    f"{path} 호출 실패: {data.get('errCd')} {data.get('errMsg')}"
+                )
+            except (requests.RequestException, ValueError) as exc:
+                last_error = exc
+                if attempt < RETRY_COUNT - 1:
+                    time.sleep(0.7 + attempt * 0.7)
+                    continue
+            break
+
+        if last_error:
+            raise last_error
+        raise RuntimeError(f"{path} 호출 실패")
+
+
+def load_geo_indexes() -> tuple[dict[str, dict], dict[str, str]]:
+    if not DONG_GEO_PATH.exists():
+        raise FileNotFoundError(f"{DONG_GEO_PATH} 파일이 없습니다.")
+    if not SGG_GEO_PATH.exists():
+        raise FileNotFoundError(f"{SGG_GEO_PATH} 파일이 없습니다.")
+
+    dong_geo = json.loads(DONG_GEO_PATH.read_text(encoding="utf-8"))
+    sgg_geo = json.loads(SGG_GEO_PATH.read_text(encoding="utf-8"))
+
+    sgg_name_map = {
+        str(feature["properties"]["code"]): str(feature["properties"]["name"])
+        for feature in sgg_geo.get("features", [])
+        if feature.get("properties", {}).get("code")
+    }
+
+    dong_map: dict[str, dict] = {}
+    for feature in dong_geo.get("features", []):
+        props = feature.get("properties", {})
+        code7 = str(props.get("code", "") or "")
+        if len(code7) != 7:
+            continue
+
+        sido_cd = str(props.get("sidoCd", "") or "")
+        sgg_code = str(props.get("sggCode", "") or "")
+        dong_map[code7] = {
+            "code": code7,
+            "sgisAdmCd": str(props.get("sgisAdmCd", "") or f"{code7}0"),
+            "name": str(props.get("name", "") or ""),
+            "sidoCd": sido_cd,
+            "sidoName": HIRA_TO_SIDO_NAME.get(sido_cd, sido_cd),
+            "sggCode": sgg_code,
+            "sggName": str(props.get("sggName", "") or sgg_name_map.get(sgg_code, "")),
+            "kostatSidoCd": HIRA_TO_KOSTAT.get(sido_cd, ""),
+        }
+
+    return dong_map, sgg_name_map
+
+
+def pick_exact_row(result, adm_cd: str) -> dict | None:
+    rows = ensure_list(result)
+    for row in rows:
+        if str(row.get("adm_cd", "")) == adm_cd:
+            return row
+    return None
+
+
+def fetch_years(client: SgisClient) -> dict:
+    result = client.get("year/data.json")
+    if not isinstance(result, dict):
+        raise RuntimeError("기준년도 정보를 가져오지 못했습니다.")
+    return result
+
+
+def collect_population_and_company(
+    client: SgisClient,
+    dong_map: dict[str, dict],
+    population_year: str,
+    company_year: str,
+) -> dict[str, dict]:
+    data_map = {code: dict(meta) for code, meta in dong_map.items()}
+    sgg_codes = sorted({meta["sggCode"] for meta in dong_map.values() if meta["sggCode"]})
+
+    print(f"시군구 {len(sgg_codes)}개에 대해 총조사 주요지표 수집 중...")
+    for idx, sgg_code in enumerate(sgg_codes, start=1):
+        scoped_codes = [code for code, meta in data_map.items() if meta["sggCode"] == sgg_code]
+
+        population_rows = ensure_list(
+            client.get(
+                "stats/population.json",
+                {"year": population_year, "adm_cd": sgg_code, "low_search": 1},
+                allow_empty=True,
+            )
+        )
+        population_by_code = {
+            normalize_stats_adm_cd(row.get("adm_cd")): row for row in population_rows
+        }
+        population_by_name = {
+            normalize_area_name(row.get("adm_nm")): row for row in population_rows
+            if normalize_area_name(row.get("adm_nm"))
+        }
+        for code7 in scoped_codes:
+            entry = data_map[code7]
+            row = population_by_code.get(code7)
+            if row is None:
+                row = population_by_name.get(normalize_area_name(entry.get("name", "")))
+            if row is None:
+                continue
+            matched_code7 = normalize_stats_adm_cd(row.get("adm_cd"))
+            if matched_code7:
+                entry["statsAdmCd"] = matched_code7
+                entry["sgisAdmCd"] = to_startupbiz_adm_cd(matched_code7) or entry["sgisAdmCd"]
+            entry.update(
+                {
+                    "totalPopulation": to_int(row.get("tot_ppltn")),
+                    "averageAge": to_float(row.get("avg_age")),
+                    "agingIndex": to_float(row.get("aged_child_idx")),
+                    "populationDensity": to_float(row.get("ppltn_dnsty")),
+                    "totalFamilies": to_int(row.get("tot_family")),
+                    "averageFamilyMembers": to_float(row.get("avg_fmember_cnt")),
+                    "totalHouses": to_int(row.get("tot_house")),
+                }
+            )
+
+        company_rows = ensure_list(
+            client.get(
+                "stats/company.json",
+                {"year": company_year, "adm_cd": sgg_code, "low_search": 1},
+                allow_empty=True,
+            )
+        )
+        company_by_code = {
+            normalize_stats_adm_cd(row.get("adm_cd")): row for row in company_rows
+        }
+        company_by_name = {
+            normalize_area_name(row.get("adm_nm")): row for row in company_rows
+            if normalize_area_name(row.get("adm_nm"))
+        }
+        for code7 in scoped_codes:
+            entry = data_map[code7]
+            row = company_by_code.get(code7)
+            if row is None:
+                row = company_by_name.get(normalize_area_name(entry.get("name", "")))
+            if row is None:
+                continue
+            matched_code7 = normalize_stats_adm_cd(row.get("adm_cd"))
+            if matched_code7:
+                entry["statsAdmCd"] = matched_code7
+                entry["sgisAdmCd"] = to_startupbiz_adm_cd(matched_code7) or entry["sgisAdmCd"]
+            entry.update(
+                {
+                    "businessCount": to_int(row.get("corp_cnt")),
+                    "workerCount": to_int(row.get("tot_worker")),
+                }
+            )
+
+        if idx % 25 == 0 or idx == len(sgg_codes):
+            print(f"  {idx}/{len(sgg_codes)} 시군구 완료")
+        time.sleep(REQUEST_DELAY)
+
+    return data_map
+
+
+def collect_region_summaries(client: SgisClient, data_map: dict[str, dict]) -> None:
+    items = list(sorted(data_map.items()))
+    total = len(items)
+
+    print(f"읍면동 {total}개에 대해 생활업종 후보지 정보 수집 중...")
+    for idx, (code7, entry) in enumerate(items, start=1):
+        row = pick_exact_row(
+            client.get(
+                "startupbiz/regiontotal.json",
+                {"adm_cd": entry["sgisAdmCd"]},
+                allow_empty=True,
+            ),
+            entry["sgisAdmCd"],
+        )
+        if row:
+            entry.update(
+                {
+                    "apartmentRate": to_float(row.get("apart_per")),
+                    "residentialPopulationLevel": to_float(row.get("resid_ppltn_per")),
+                    "jobPopulationLevel": to_float(row.get("job_ppltn_per")),
+                    "onePersonHouseholdRate": to_float(row.get("one_person_family_per")),
+                    "senior65Rate": to_float(row.get("sixty_five_more_ppltn_per")),
+                    "twentyRate": to_float(row.get("twenty_ppltn_per")),
+                }
+            )
+
+        row = pick_exact_row(
+            client.get(
+                "startupbiz/mfratiosummary.json",
+                {"adm_cd": entry["sgisAdmCd"]},
+                allow_empty=True,
+            ),
+            entry["sgisAdmCd"],
+        )
+        if row:
+            entry.update(
+                {
+                    "femaleRate": to_float(row.get("f_per")),
+                    "maleRate": to_float(row.get("m_per")),
+                    "femalePopulation": to_int(row.get("f_ppl")),
+                    "malePopulation": to_int(row.get("m_ppl")),
+                }
+            )
+
+        if idx % 100 == 0 or idx == total:
+            print(f"  {idx}/{total} 읍면동 완료")
+        time.sleep(REQUEST_DELAY)
+
+
+def build_payload(years: dict, data_map: dict[str, dict]) -> dict:
+    return {
+        "focus": "haniwon",
+        "updated": {
+            "populationYear": str(years.get("lin_yr", "")),
+            "companyYear": str(years.get("lcorp_yr", "")),
+            "boundaryYear": str(years.get("lboudary_yr", "")),
+            "smallAreaBoundaryYear": str(years.get("loa_yr", "")),
+        },
+        "layers": [
+            "totalPopulation",
+            "averageAge",
+            "senior65Rate",
+            "workerCount",
+            "apartmentRate",
+        ],
+        "dong": data_map,
+    }
+
+
+def main() -> None:
     if not SGIS_KEY or not SGIS_SECRET:
-        print('오류: SGIS_KEY, SGIS_SECRET 환경변수가 필요합니다.')
+        print("오류: SGIS_KEY, SGIS_SECRET 환경변수가 필요합니다.")
         sys.exit(1)
 
-    print('SGIS 인증 중...')
-    token = get_token()
-    print('인증 성공\n')
+    dong_map, _ = load_geo_indexes()
+    print(f"읍면동 메타데이터 {len(dong_map)}개 로드")
 
-    # ── 시도 레벨 ─────────────────────────────────────
-    print('시도 인구 수집...')
-    sido_pop = {it['adm_cd']: it for it in call(token, 'stats/searchpopulation.json',
-                                                 {'year': '2020', 'gender': '0'})}
-    print(f'  {len(sido_pop)}개')
+    client = SgisClient(SGIS_KEY, SGIS_SECRET)
+    print("SGIS 인증 중...")
+    client.authenticate()
+    print("인증 성공")
 
-    print('시도 사업체 수집...')
-    sido_corp = {it['adm_cd']: it for it in call(token, 'stats/company.json',
-                                                  {'year': '2021'})}
-    print(f'  {len(sido_corp)}개')
+    years = fetch_years(client)
+    population_year = str(years.get("lin_yr", "") or "")
+    company_year = str(years.get("lcorp_yr", "") or "")
+    print(f"기준년도: 인구/주택 {population_year}, 사업체 {company_year}")
 
-    sido = {}
-    all_codes = set(sido_pop) | set(sido_corp)
-    for cd in all_codes:
-        p = sido_pop.get(cd, {})
-        c = sido_corp.get(cd, {})
-        sido[cd] = {
-            'name':       p.get('adm_nm') or c.get('adm_nm', cd),
-            'population': int(p.get('population', 0) or 0),
-            'corp_cnt':   int(c.get('corp_cnt', 0) or 0),
-            'tot_worker': int(c.get('tot_worker', 0) or 0),
-        }
-    for cd in sorted(sido):
-        d = sido[cd]
-        print(f'  [{d["name"]}] 인구 {d["population"]:,}  사업체 {d["corp_cnt"]:,}')
+    data_map = collect_population_and_company(client, dong_map, population_year, company_year)
+    collect_region_summaries(client, data_map)
 
-    # ── 시군구 레벨 ───────────────────────────────────
-    print('\n시군구 데이터 수집...')
-    sgg = {}
+    payload = build_payload(years, data_map)
+    OUTPUT_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
-    for sido_cd in SIDO_CODES:
-        corp_items = call(token, 'stats/company.json', {'year': '2021', 'adm_cd': sido_cd})
-        time.sleep(0.05)
-
-        for it in corp_items:
-            sgg_cd = str(it['adm_cd'])
-            sgg[sgg_cd] = {
-                'name':       it.get('adm_nm', ''),
-                'sido':       sido_cd,
-                'corp_cnt':   int(it.get('corp_cnt', 0) or 0),
-                'tot_worker': int(it.get('tot_worker', 0) or 0),
-            }
-
-        for sgg_cd in [k for k in sgg if k.startswith(sido_cd)]:
-            pop = call(token, 'stats/searchpopulation.json',
-                       {'year': '2020', 'gender': '0', 'adm_cd': sgg_cd})
-            if pop:
-                sgg[sgg_cd]['population'] = int(pop[0].get('population', 0) or 0)
-            time.sleep(0.05)
-
-        print(f'  {sido[sido_cd]["name"]}: {len(corp_items)}개 시군구', flush=True)
-
-    # ── 시군구 의료업종 분포 ──────────────────────────
-    print('\n시군구 의료업종 분포 수집...')
-    med_ok = 0
-    for sgg_cd in sorted(sgg.keys()):
-        result = call(token, 'startupbiz/corpdistsummary.json', {'adm_cd': sgg_cd})
-        if result:
-            sgg[sgg_cd]['med_per'] = med_per_from_result(result, sgg_cd)
-            med_ok += 1
-        time.sleep(0.05)
-    print(f'  {med_ok}개 시군구 완료')
-
-    # ── 읍면동 인구 (사업체 데이터는 시군구까지만 제공) ──
-    print('\n읍면동 코드 목록 다운로드...')
-    with urllib.request.urlopen(SUBMUNICIPALITIES_URL, timeout=120) as r:
-        geo_raw = json.loads(r.read())
-    dong_codes = [
-        str(f['properties']['code'])
-        for f in geo_raw['features']
-        if f.get('properties', {}).get('code')
-    ]
-    print(f'  총 {len(dong_codes)}개 읍면동')
-
-    print('읍면동 인구 수집 중...')
-    dong = {}
-    for i, code in enumerate(dong_codes):
-        adm_cd = code + '0'  # 7자리 → 8자리 SGIS 코드
-        pop = call(token, 'stats/searchpopulation.json',
-                   {'year': '2020', 'gender': '0', 'adm_cd': adm_cd})
-        if pop:
-            p = pop[0]
-            dong[code] = {
-                'name':       p.get('adm_nm', ''),
-                'population': int(p.get('population', 0) or 0),
-            }
-        time.sleep(0.05)
-        if (i + 1) % 200 == 0:
-            print(f'  {i+1}/{len(dong_codes)} 완료', flush=True)
-            # 토큰 갱신 (4시간 유효, 200개마다 ~10초 경과)
-            # 장시간 실행 시 필요 시 재인증
-    print(f'  {len(dong)}개 읍면동 수집 완료')
-
-    # ── 저장 ─────────────────────────────────────────
-    out_path = DATA_DIR / 'sgis_stats.json'
-    payload = {'updated': '2021', 'sido': sido, 'sgg': sgg, 'dong': dong}
-    with open(out_path, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, ensure_ascii=False, separators=(',', ':'))
-
-    print(f'\n완료: {out_path}')
-    print(f'  시도: {len(sido)}개, 시군구: {len(sgg)}개, 읍면동: {len(dong)}개')
+    complete = sum(1 for item in data_map.values() if item.get("totalPopulation") is not None)
+    print(f"\n완료: {OUTPUT_PATH}")
+    print(f"  읍면동 {len(data_map)}개 중 인구 데이터 보유 {complete}개")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
