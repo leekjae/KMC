@@ -75,6 +75,14 @@ const LAYER_CONFIG = {
   },
 };
 
+const AREA_DETAIL_METRICS = [
+  { key: 'totalPopulation', label: '총인구', formatter: value => formatFullCount(value, '명') },
+  { key: 'averageAge', label: '평균연령', formatter: value => formatAge(value) },
+  { key: 'senior65Rate', label: '65세 이상', formatter: value => formatPercent(value) },
+  { key: 'workerCount', label: '종사자수', formatter: value => formatFullCount(value, '명') },
+  { key: 'apartmentRate', label: '아파트비율', formatter: value => formatPercent(value) },
+];
+
 const CLUSTER_GRID = {
   5: 2.0,
   6: 1.5,
@@ -109,6 +117,11 @@ const state = {
   sidoPolygons: [],
   dongGeoCache: {},
   sidoGeoData: null,
+  selectedAreaCode: '',
+  selectedAreaData: null,
+  selectedAreaPolygons: [],
+  selectedAreaCoord: null,
+  suppressNextMapClickUntil: 0,
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -137,6 +150,11 @@ function initMap() {
   naver.maps.Event.addListener(state.map, 'idle', () => {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => updateMarkers(), 180);
+  });
+
+  naver.maps.Event.addListener(state.map, 'click', () => {
+    if (Date.now() < state.suppressNextMapClickUntil) return;
+    closeAreaDetail();
   });
 }
 
@@ -213,6 +231,7 @@ function bindActionEvents() {
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     closeInfoPanel();
+    closeAreaDetail();
     closeSidebarOnMobile();
   });
 
@@ -252,6 +271,7 @@ function setTypeButtonState(button, isActive, color) {
 
 function setActiveLayer(layer) {
   if (!LAYER_CONFIG[layer]) return;
+  closeAreaDetail();
   state.activeLayer = layer;
   syncLayerButtons();
   updateLegend(layer);
@@ -270,6 +290,7 @@ function syncLayerButtons() {
 }
 
 async function setSidoFilter(sidoCode, options = {}) {
+  closeAreaDetail();
   state.activeSido = sidoCode;
   document.getElementById('sido-select').value = sidoCode;
   applyFilters();
@@ -495,6 +516,7 @@ function buildClusterIcon(count) {
 }
 
 async function updateLayer() {
+  closeAreaDetail();
   clearPolygons(state.dongPolygons);
   clearPolygons(state.sidoPolygons);
 
@@ -595,6 +617,98 @@ function getChoroplethInfo() {
   return choroplethInfo;
 }
 
+let areaDetailInfo = null;
+function getAreaDetailInfo() {
+  if (!areaDetailInfo) {
+    areaDetailInfo = new naver.maps.InfoWindow({
+      borderWidth: 0,
+      backgroundColor: 'transparent',
+      pixelOffset: new naver.maps.Point(0, -10),
+    });
+  }
+  return areaDetailInfo;
+}
+
+function applyAreaBaseStyle(polygon) {
+  polygon.setOptions(polygon.__areaBaseOptions || {});
+}
+
+function applyAreaHoverStyle(polygon, layer) {
+  const base = polygon.__areaBaseOptions || {};
+  polygon.setOptions({
+    ...base,
+    strokeWeight: 1.6,
+    strokeColor: LAYER_CONFIG[layer].stroke,
+    strokeOpacity: 0.92,
+    zIndex: (base.zIndex || 8) + 2,
+  });
+}
+
+function applyAreaSelectedStyle(polygon) {
+  const base = polygon.__areaBaseOptions || {};
+  polygon.setOptions({
+    ...base,
+    fillOpacity: Math.min((base.fillOpacity || 0.65) + 0.18, 0.88),
+    strokeWeight: 2.2,
+    strokeColor: '#10253c',
+    strokeOpacity: 0.95,
+    zIndex: (base.zIndex || 8) + 4,
+  });
+}
+
+function refreshAreaPolygonStyle(polygon, layer) {
+  if (polygon.__areaCode && polygon.__areaCode === state.selectedAreaCode) {
+    applyAreaSelectedStyle(polygon);
+    return;
+  }
+  applyAreaBaseStyle(polygon, layer);
+}
+
+function clearSelectedAreaHighlight() {
+  state.selectedAreaPolygons.forEach(applyAreaBaseStyle);
+  state.selectedAreaPolygons = [];
+  state.selectedAreaCode = '';
+  state.selectedAreaData = null;
+  state.selectedAreaCoord = null;
+}
+
+function closeAreaDetail() {
+  if (areaDetailInfo) {
+    areaDetailInfo.close();
+  }
+  clearSelectedAreaHighlight();
+}
+
+function bindAreaDetailCloseButton() {
+  const button = document.querySelector('[data-area-detail-close="true"]');
+  if (!button) return;
+  button.onclick = event => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeAreaDetail();
+  };
+}
+
+function openAreaDetailPopup(areaData, coord) {
+  if (!coord) return;
+  state.selectedAreaData = areaData;
+  state.selectedAreaCoord = coord;
+  const popup = getAreaDetailInfo();
+  popup.setContent(makeAreaDetailContent(areaData));
+  popup.open(state.map, coord);
+  setTimeout(bindAreaDetailCloseButton, 0);
+}
+
+function selectAreaFeature(areaData, polygons, coord) {
+  clearSelectedAreaHighlight();
+  state.selectedAreaCode = areaData.sgisAdmCd || '';
+  state.selectedAreaPolygons = polygons.slice();
+  state.selectedAreaData = areaData;
+  state.selectedAreaCoord = coord;
+  polygons.forEach(applyAreaSelectedStyle);
+  openAreaDetailPopup(areaData, coord);
+}
+
 async function drawDongLayer(layer, sidoCode) {
   const geo = await loadDongGeo(sidoCode);
   if (!geo) return;
@@ -611,30 +725,43 @@ async function drawDongLayer(layer, sidoCode) {
 
   features.forEach(feature => {
     const code = feature.properties.sgisAdmCd;
-    const areaData = marketDong[code] || null;
+    const areaData = marketDong[code] || {
+      sgisAdmCd: code,
+      name: feature.properties.name,
+      sidoCd: feature.properties.sidoCd,
+      sggName: feature.properties.sggName,
+    };
     const value = getLayerValue(areaData, layer);
     const color = getLayerColor(value, minValue, maxValue, layer);
     const name = feature.properties.name;
-
-    geoJsonToPolygons(feature.geometry, {
+    const baseOptions = {
       fillColor: color,
       fillOpacity: 0.65,
       strokeColor: color,
       strokeWeight: 0,
       strokeOpacity: 0,
       zIndex: 8,
-    }).forEach(polygon => {
+    };
+    const polygons = geoJsonToPolygons(feature.geometry, baseOptions);
+
+    polygons.forEach(polygon => {
+      polygon.__areaCode = code;
+      polygon.__areaBaseOptions = baseOptions;
       polygon.setMap(state.map);
       naver.maps.Event.addListener(polygon, 'mouseover', event => {
-        polygon.setOptions({ strokeWeight: 1.6, strokeColor: LAYER_CONFIG[layer].stroke, strokeOpacity: 0.9 });
+        applyAreaHoverStyle(polygon, layer);
         info.setContent(makeAreaTipContent(name, areaData, layer));
         info.open(state.map, event.coord);
       });
       naver.maps.Event.addListener(polygon, 'mouseout', () => {
-        polygon.setOptions({ strokeWeight: 0, strokeColor: color, strokeOpacity: 0 });
+        refreshAreaPolygonStyle(polygon, layer);
         info.close();
       });
-      naver.maps.Event.addListener(polygon, 'click', () => focusGeometry(feature.geometry));
+      naver.maps.Event.addListener(polygon, 'click', event => {
+        state.suppressNextMapClickUntil = Date.now() + 220;
+        info.close();
+        selectAreaFeature(areaData, polygons, event.coord || getGeometryCenterLatLng(feature.geometry));
+      });
       state.dongPolygons.push(polygon);
     });
   });
@@ -740,6 +867,62 @@ async function drawSidoLayer(layer) {
   });
 }
 
+function getAreaEntriesForRanking(sidoCode, metricKey) {
+  return Object.values(state.marketData?.dong || {}).filter(entry =>
+    entry.sidoCd === sidoCode && entry[metricKey] != null
+  );
+}
+
+function getAreaRankInfo(areaData, metricKey) {
+  if (!areaData?.sidoCd || areaData[metricKey] == null) return null;
+  const entries = getAreaEntriesForRanking(areaData.sidoCd, metricKey);
+  if (!entries.length) return null;
+  const targetValue = Number(areaData[metricKey]);
+  const higherCount = entries.filter(entry => Number(entry[metricKey]) > targetValue).length;
+  return {
+    rank: higherCount + 1,
+    total: entries.length,
+  };
+}
+
+function formatAreaRank(rankInfo) {
+  if (!rankInfo) return '데이터 없음';
+  return `${rankInfo.rank.toLocaleString()}위/${rankInfo.total.toLocaleString()}개 읍면동`;
+}
+
+function makeAreaDetailMetricRow(areaData, metric) {
+  const rankInfo = getAreaRankInfo(areaData, metric.key);
+  const displayValue = areaData?.[metric.key] == null ? '-' : metric.formatter(areaData[metric.key]);
+  return `
+    <div class="area-popup-row">
+      <div class="area-popup-copy">
+        <span class="area-popup-label">${escapeHtml(metric.label)}</span>
+        <strong class="area-popup-value">${escapeHtml(displayValue)}</strong>
+      </div>
+      <span class="area-popup-rank">${escapeHtml(formatAreaRank(rankInfo))}</span>
+    </div>
+  `;
+}
+
+function makeAreaDetailContent(areaData) {
+  const title = [areaData?.sidoName, areaData?.sggName, areaData?.name].filter(Boolean).join(' ');
+  const subtitle = state.activeSido
+    ? `${getSelectedSidoName() || areaData?.sidoName || ''} 내 읍면동 비교`
+    : '읍면동 비교';
+  const rows = AREA_DETAIL_METRICS.map(metric => makeAreaDetailMetricRow(areaData, metric)).join('');
+
+  return `
+    <div class="map-area-popup">
+      <button class="area-popup-close" type="button" data-area-detail-close="true" aria-label="팝업 닫기">×</button>
+      <div class="area-popup-header">
+        <strong class="area-popup-title">${escapeHtml(title || areaData?.name || '읍면동 정보')}</strong>
+        <p class="area-popup-sub">${escapeHtml(subtitle)}</p>
+      </div>
+      <div class="area-popup-body">${rows}</div>
+    </div>
+  `;
+}
+
 function makeAreaTipContent(name, areaData, layer) {
   if (!areaData) {
     return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong><div class="tip-sub">데이터 없음</div></div>`;
@@ -829,6 +1012,7 @@ function renderResultsList() {
 }
 
 function selectFacility(item) {
+  closeAreaDetail();
   state.selectedId = item.id;
   if (item.lat && item.lng) {
     state.map.setCenter(new naver.maps.LatLng(item.lat, item.lng));
@@ -1086,6 +1270,7 @@ function makeUpdatedText(updated) {
 }
 
 function resetFilters() {
+  closeAreaDetail();
   state.searchText = '';
   state.activeSido = '';
   state.activeTypes = new Set(DEFAULT_ACTIVE_TYPES);
@@ -1137,6 +1322,11 @@ function focusGeometry(geometry) {
   const bounds = geometryToBounds(geometry);
   if (!bounds) return;
   state.map.fitBounds(bounds);
+}
+
+function getGeometryCenterLatLng(geometry) {
+  const bounds = geometryToBounds(geometry);
+  return bounds ? bounds.getCenter() : null;
 }
 
 function geometryToBounds(geometry) {
