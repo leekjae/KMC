@@ -619,9 +619,9 @@ async function drawDongLayer(layer, sidoCode) {
     geoJsonToPolygons(feature.geometry, {
       fillColor: color,
       fillOpacity: 0.65,
-      strokeColor: '#fff',
-      strokeWeight: 0.55,
-      strokeOpacity: 0.55,
+      strokeColor: color,
+      strokeWeight: 0,
+      strokeOpacity: 0,
       zIndex: 8,
     }).forEach(polygon => {
       polygon.setMap(state.map);
@@ -631,7 +631,7 @@ async function drawDongLayer(layer, sidoCode) {
         info.open(state.map, event.coord);
       });
       naver.maps.Event.addListener(polygon, 'mouseout', () => {
-        polygon.setOptions({ strokeWeight: 0.55, strokeColor: '#fff', strokeOpacity: 0.55 });
+        polygon.setOptions({ strokeWeight: 0, strokeColor: color, strokeOpacity: 0 });
         info.close();
       });
       naver.maps.Event.addListener(polygon, 'click', () => focusGeometry(feature.geometry));
@@ -717,9 +717,9 @@ async function drawSidoLayer(layer) {
     geoJsonToPolygons(feature.geometry, {
       fillColor: color,
       fillOpacity: 0.62,
-      strokeColor: '#fff',
-      strokeWeight: 0.9,
-      strokeOpacity: 0.75,
+      strokeColor: color,
+      strokeWeight: 0,
+      strokeOpacity: 0,
       zIndex: 7,
     }).forEach(polygon => {
       polygon.setMap(state.map);
@@ -729,7 +729,7 @@ async function drawSidoLayer(layer) {
         info.open(state.map, event.coord);
       });
       naver.maps.Event.addListener(polygon, 'mouseout', () => {
-        polygon.setOptions({ strokeWeight: 0.9, strokeColor: '#fff', strokeOpacity: 0.75 });
+        polygon.setOptions({ strokeWeight: 0, strokeColor: color, strokeOpacity: 0 });
         info.close();
       });
       naver.maps.Event.addListener(polygon, 'click', () => {

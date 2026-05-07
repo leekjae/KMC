@@ -27,7 +27,7 @@ ROOT_DIR = Path(__file__).parent.parent
 OUT = ROOT_DIR / "data" / "dong_geo.json"
 DONG_SPLIT_DIR = ROOT_DIR / "data" / "dong_geo_sido"
 REQUEST_TIMEOUT = 60
-SIMPLIFY_TOLERANCE_METERS = 40
+SIMPLIFY_TOLERANCE_METERS = 0
 COORD_PRECISION = 6
 
 KOSTAT_TO_HIRA = {
@@ -128,7 +128,8 @@ def build_feature(raw_feature: dict) -> dict | None:
 
     try:
         geom = shape(raw_feature["geometry"])
-        geom = geom.simplify(SIMPLIFY_TOLERANCE_METERS, preserve_topology=True)
+        if SIMPLIFY_TOLERANCE_METERS > 0:
+            geom = geom.simplify(SIMPLIFY_TOLERANCE_METERS, preserve_topology=True)
         geom = shapely_transform(UTMK_TO_WGS84, geom)
     except Exception:
         return None
