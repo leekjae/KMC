@@ -130,18 +130,6 @@ def normalize_area_name(value: str) -> str:
     return text.replace(" ", "")
 
 
-def normalize_stats_adm_cd(value: str) -> str:
-    text = str(value or "").strip()
-    if len(text) >= 8:
-        return text[:7]
-    return text[:7]
-
-
-def to_startupbiz_adm_cd(value: str) -> str:
-    text = normalize_stats_adm_cd(value)
-    return f"{text}0" if len(text) == 7 else ""
-
-
 class SgisClient:
     def __init__(self, key: str, secret: str) -> None:
         self.key = key
@@ -226,15 +214,18 @@ def load_geo_indexes() -> tuple[dict[str, dict], dict[str, str]]:
     dong_map: dict[str, dict] = {}
     for feature in dong_geo.get("features", []):
         props = feature.get("properties", {})
-        code7 = str(props.get("code", "") or "")
-        if len(code7) != 7:
+        sgis_adm_cd = str(props.get("sgisAdmCd", "") or "")
+        if len(sgis_adm_cd) != 8:
             continue
+        code = str(props.get("code", "") or sgis_adm_cd)
+        code7 = str(props.get("code7", "") or sgis_adm_cd[:7])
 
         sido_cd = str(props.get("sidoCd", "") or "")
         sgg_code = str(props.get("sggCode", "") or "")
-        dong_map[code7] = {
-            "code": code7,
-            "sgisAdmCd": str(props.get("sgisAdmCd", "") or f"{code7}0"),
+        dong_map[sgis_adm_cd] = {
+            "code": code,
+            "code7": code7,
+            "sgisAdmCd": sgis_adm_cd,
             "name": str(props.get("name", "") or ""),
             "sidoCd": sido_cd,
             "sidoName": HIRA_TO_SIDO_NAME.get(sido_cd, sido_cd),
@@ -272,7 +263,7 @@ def collect_population_and_company(
 
     print(f"시군구 {len(sgg_codes)}개에 대해 총조사 주요지표 수집 중...")
     for idx, sgg_code in enumerate(sgg_codes, start=1):
-        scoped_codes = [code for code, meta in data_map.items() if meta["sggCode"] == sgg_code]
+        scoped_codes = [key for key, meta in data_map.items() if meta["sggCode"] == sgg_code]
 
         population_rows = ensure_list(
             client.get(
@@ -282,23 +273,22 @@ def collect_population_and_company(
             )
         )
         population_by_code = {
-            normalize_stats_adm_cd(row.get("adm_cd")): row for row in population_rows
+            str(row.get("adm_cd", "") or ""): row for row in population_rows
         }
         population_by_name = {
             normalize_area_name(row.get("adm_nm")): row for row in population_rows
             if normalize_area_name(row.get("adm_nm"))
         }
-        for code7 in scoped_codes:
-            entry = data_map[code7]
-            row = population_by_code.get(code7)
+        for sgis_adm_cd in scoped_codes:
+            entry = data_map[sgis_adm_cd]
+            row = population_by_code.get(sgis_adm_cd)
             if row is None:
                 row = population_by_name.get(normalize_area_name(entry.get("name", "")))
             if row is None:
                 continue
-            matched_code7 = normalize_stats_adm_cd(row.get("adm_cd"))
-            if matched_code7:
-                entry["statsAdmCd"] = matched_code7
-                entry["sgisAdmCd"] = to_startupbiz_adm_cd(matched_code7) or entry["sgisAdmCd"]
+            matched_adm_cd = str(row.get("adm_cd", "") or "")
+            if matched_adm_cd:
+                entry["statsAdmCd"] = matched_adm_cd
             entry.update(
                 {
                     "totalPopulation": to_int(row.get("tot_ppltn")),
@@ -319,23 +309,22 @@ def collect_population_and_company(
             )
         )
         company_by_code = {
-            normalize_stats_adm_cd(row.get("adm_cd")): row for row in company_rows
+            str(row.get("adm_cd", "") or ""): row for row in company_rows
         }
         company_by_name = {
             normalize_area_name(row.get("adm_nm")): row for row in company_rows
             if normalize_area_name(row.get("adm_nm"))
         }
-        for code7 in scoped_codes:
-            entry = data_map[code7]
-            row = company_by_code.get(code7)
+        for sgis_adm_cd in scoped_codes:
+            entry = data_map[sgis_adm_cd]
+            row = company_by_code.get(sgis_adm_cd)
             if row is None:
                 row = company_by_name.get(normalize_area_name(entry.get("name", "")))
             if row is None:
                 continue
-            matched_code7 = normalize_stats_adm_cd(row.get("adm_cd"))
-            if matched_code7:
-                entry["statsAdmCd"] = matched_code7
-                entry["sgisAdmCd"] = to_startupbiz_adm_cd(matched_code7) or entry["sgisAdmCd"]
+            matched_adm_cd = str(row.get("adm_cd", "") or "")
+            if matched_adm_cd:
+                entry["statsAdmCd"] = matched_adm_cd
             entry.update(
                 {
                     "businessCount": to_int(row.get("corp_cnt")),

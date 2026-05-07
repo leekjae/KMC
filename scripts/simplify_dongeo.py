@@ -65,13 +65,6 @@ def load_env_file() -> None:
             os.environ.setdefault(key.strip(), value.strip())
 
 
-def normalize_stats_adm_cd(value: str) -> str:
-    text = str(value or "").strip()
-    if len(text) >= 8:
-        return text[:7]
-    return text[:7]
-
-
 class SgisClient:
     def __init__(self, key: str, secret: str) -> None:
         self.key = key
@@ -120,9 +113,9 @@ def fetch_boundary_year(client: SgisClient) -> str:
 def build_feature(raw_feature: dict) -> dict | None:
     props = raw_feature.get("properties", {})
     adm_cd8 = str(props.get("adm_cd", "") or "")
-    code7 = normalize_stats_adm_cd(adm_cd8)
-    if len(code7) != 7:
+    if len(adm_cd8) != 8:
         return None
+    code7 = adm_cd8[:7]
 
     full_name = str(props.get("adm_nm", "") or "").strip()
     name_parts = full_name.split()
@@ -147,7 +140,8 @@ def build_feature(raw_feature: dict) -> dict | None:
         "type": "Feature",
         "geometry": round_geometry(mapping(geom)),
         "properties": {
-            "code": code7,
+            "code": adm_cd8,
+            "code7": code7,
             "sgisAdmCd": adm_cd8,
             "name": short_name,
             "fullName": full_name,
@@ -198,10 +192,10 @@ def main() -> None:
             feature = build_feature(raw_feature)
             if feature is None:
                 continue
-            code7 = feature["properties"]["code"]
-            if code7 in seen_codes:
+            sgis_adm_cd = feature["properties"]["sgisAdmCd"]
+            if sgis_adm_cd in seen_codes:
                 continue
-            seen_codes.add(code7)
+            seen_codes.add(sgis_adm_cd)
             features.append(feature)
             added += 1
 

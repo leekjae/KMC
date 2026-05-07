@@ -602,7 +602,7 @@ async function drawDongLayer(layer, sidoCode) {
   const features = geo.features;
 
   const values = features
-    .map(feature => getLayerValue(marketDong[feature.properties.code], layer))
+    .map(feature => getLayerValue(marketDong[feature.properties.sgisAdmCd], layer))
     .filter(value => value != null);
 
   const minValue = values.length ? Math.min(...values) : 0;
@@ -610,7 +610,7 @@ async function drawDongLayer(layer, sidoCode) {
   const info = getChoroplethInfo();
 
   features.forEach(feature => {
-    const code = feature.properties.code;
+    const code = feature.properties.sgisAdmCd;
     const areaData = marketDong[code] || null;
     const value = getLayerValue(areaData, layer);
     const color = getLayerColor(value, minValue, maxValue, layer);
