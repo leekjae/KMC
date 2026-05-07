@@ -18,15 +18,17 @@ import time
 from pathlib import Path
 
 import requests
+from pyproj import Transformer
 from shapely.geometry import mapping, shape
+from shapely.ops import transform as shapely_transform
 
 BASE = "https://sgisapi.mods.go.kr/OpenAPI3"
 ROOT_DIR = Path(__file__).parent.parent
 OUT = ROOT_DIR / "data" / "dong_geo.json"
 DONG_SPLIT_DIR = ROOT_DIR / "data" / "dong_geo_sido"
 REQUEST_TIMEOUT = 60
-SIMPLIFY_TOLERANCE = 0.008
-COORD_PRECISION = 5
+SIMPLIFY_TOLERANCE_METERS = 40
+COORD_PRECISION = 6
 
 KOSTAT_TO_HIRA = {
     "11": "110000",
@@ -47,6 +49,8 @@ KOSTAT_TO_HIRA = {
     "38": "380000",
     "39": "390000",
 }
+
+UTMK_TO_WGS84 = Transformer.from_crs("EPSG:5179", "EPSG:4326", always_xy=True).transform
 
 
 def load_env_file() -> None:
@@ -130,10 +134,9 @@ def build_feature(raw_feature: dict) -> dict | None:
         return None
 
     try:
-        geom = shape(raw_feature["geometry"]).simplify(
-            SIMPLIFY_TOLERANCE,
-            preserve_topology=True,
-        )
+        geom = shape(raw_feature["geometry"])
+        geom = geom.simplify(SIMPLIFY_TOLERANCE_METERS, preserve_topology=True)
+        geom = shapely_transform(UTMK_TO_WGS84, geom)
     except Exception:
         return None
 

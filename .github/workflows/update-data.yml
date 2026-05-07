@@ -23,7 +23,7 @@ jobs:
           python-version: '3.11'
 
       - name: 의존성 설치
-        run: pip install requests shapely
+        run: pip install requests shapely pyproj
 
       - name: 병의원 데이터 수집
         env:
