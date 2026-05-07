@@ -80,7 +80,7 @@ const AREA_DETAIL_METRICS = [
   { key: 'averageAge', label: '평균연령', formatter: value => formatAge(value) },
   { key: 'senior65Rate', label: '65세 이상', formatter: value => formatPercent(value) },
   { key: 'workerCount', label: '종사자수', formatter: value => formatFullCount(value, '명') },
-  { key: 'apartmentRate', label: '아파트비율', formatter: value => formatPercent(value) },
+  { key: 'apartmentRate', label: '아파트 비율', formatter: value => formatPercent(value) },
 ];
 
 const CLUSTER_GRID = {
@@ -99,6 +99,7 @@ const DATA_BASE_URL = './data';
 const RESULTS_DISPLAY_LIMIT = 300;
 const INITIAL_MAP_CENTER = { lat: 36.5, lng: 127.8, zoom: 7 };
 const MOBILE_MEDIA_QUERY = '(max-width: 960px)';
+const AREA_POPUP_SUPPRESS_MS = 700;
 const DEFAULT_ACTIVE_TYPES = new Set(['한의원']);
 
 const state = {
@@ -117,10 +118,10 @@ const state = {
   sidoPolygons: [],
   dongGeoCache: {},
   sidoGeoData: null,
+  areaStatsCache: {},
   selectedAreaCode: '',
   selectedAreaData: null,
   selectedAreaPolygons: [],
-  selectedAreaCoord: null,
   suppressNextMapClickUntil: 0,
 };
 
@@ -341,6 +342,10 @@ async function loadMarketData() {
     updateSidebarSummary();
     updateMapOverlay();
     await updateLayer();
+    if (state.selectedId) {
+      const selectedItem = state.allData.find(item => item.id === state.selectedId);
+      if (selectedItem) void showInfoPanel(selectedItem);
+    }
   } catch (error) {
     console.warn('SGIS 데이터 로드 오류:', error);
   }
@@ -617,16 +622,8 @@ function getChoroplethInfo() {
   return choroplethInfo;
 }
 
-let areaDetailInfo = null;
-function getAreaDetailInfo() {
-  if (!areaDetailInfo) {
-    areaDetailInfo = new naver.maps.InfoWindow({
-      borderWidth: 0,
-      backgroundColor: 'transparent',
-      pixelOffset: new naver.maps.Point(0, -10),
-    });
-  }
-  return areaDetailInfo;
+function getAreaDetailPopupRoot() {
+  return document.getElementById('area-detail-popup');
 }
 
 function applyAreaBaseStyle(polygon) {
@@ -669,18 +666,19 @@ function clearSelectedAreaHighlight() {
   state.selectedAreaPolygons = [];
   state.selectedAreaCode = '';
   state.selectedAreaData = null;
-  state.selectedAreaCoord = null;
 }
 
 function closeAreaDetail() {
-  if (areaDetailInfo) {
-    areaDetailInfo.close();
+  const popupRoot = getAreaDetailPopupRoot();
+  if (popupRoot) {
+    popupRoot.hidden = true;
+    popupRoot.innerHTML = '';
   }
   clearSelectedAreaHighlight();
 }
 
 function bindAreaDetailCloseButton() {
-  const button = document.querySelector('[data-area-detail-close="true"]');
+  const button = getAreaDetailPopupRoot()?.querySelector('[data-area-detail-close="true"]');
   if (!button) return;
   button.onclick = event => {
     event.preventDefault();
@@ -689,24 +687,22 @@ function bindAreaDetailCloseButton() {
   };
 }
 
-function openAreaDetailPopup(areaData, coord) {
-  if (!coord) return;
+function openAreaDetailPopup(areaData) {
+  const popupRoot = getAreaDetailPopupRoot();
+  if (!popupRoot) return;
   state.selectedAreaData = areaData;
-  state.selectedAreaCoord = coord;
-  const popup = getAreaDetailInfo();
-  popup.setContent(makeAreaDetailContent(areaData));
-  popup.open(state.map, coord);
-  setTimeout(bindAreaDetailCloseButton, 0);
+  popupRoot.innerHTML = makeAreaDetailContent(areaData);
+  popupRoot.hidden = false;
+  bindAreaDetailCloseButton();
 }
 
-function selectAreaFeature(areaData, polygons, coord) {
+function selectAreaFeature(areaData, polygons) {
   clearSelectedAreaHighlight();
   state.selectedAreaCode = areaData.sgisAdmCd || '';
   state.selectedAreaPolygons = polygons.slice();
   state.selectedAreaData = areaData;
-  state.selectedAreaCoord = coord;
   polygons.forEach(applyAreaSelectedStyle);
-  openAreaDetailPopup(areaData, coord);
+  openAreaDetailPopup(areaData);
 }
 
 async function drawDongLayer(layer, sidoCode) {
@@ -758,9 +754,9 @@ async function drawDongLayer(layer, sidoCode) {
         info.close();
       });
       naver.maps.Event.addListener(polygon, 'click', event => {
-        state.suppressNextMapClickUntil = Date.now() + 220;
+        state.suppressNextMapClickUntil = Date.now() + AREA_POPUP_SUPPRESS_MS;
         info.close();
-        selectAreaFeature(areaData, polygons, event.coord || getGeometryCenterLatLng(feature.geometry));
+        selectAreaFeature(areaData, polygons);
       });
       state.dongPolygons.push(polygon);
     });
@@ -865,6 +861,24 @@ async function drawSidoLayer(layer) {
       state.sidoPolygons.push(polygon);
     });
   });
+}
+
+function renderInfoPanelContent(item, color, areaStats, isAreaStatsLoading = false) {
+  const rows = buildInfoRows(item, areaStats, { isAreaStatsLoading });
+  const marketCard = areaStats ? buildAreaStatsCard(areaStats) : '';
+
+  document.getElementById('info-content').innerHTML = `
+    <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '병의원')}</div>
+    <div class="info-name">${escapeHtml(item.name || '')}</div>
+    ${marketCard}
+    <div class="info-divider"></div>
+    ${rows.map(row => `
+      <div class="info-row">
+        <div class="info-row-label">${escapeHtml(row.label)}</div>
+        <div class="info-row-text">${row.html}</div>
+      </div>
+    `).join('')}
+  `;
 }
 
 function getAreaEntriesForRanking(sidoCode, metricKey) {
@@ -1018,7 +1032,7 @@ function selectFacility(item) {
     state.map.setCenter(new naver.maps.LatLng(item.lat, item.lng));
     if (state.map.getZoom() < 15) state.map.setZoom(15);
   }
-  showInfoPanel(item);
+  void showInfoPanel(item);
   highlightListItem(item.id);
   closeSidebarOnMobile();
 }
@@ -1033,31 +1047,23 @@ function highlightListItem(id) {
   });
 }
 
-function showInfoPanel(item) {
+async function showInfoPanel(item) {
   const group = getGroupByCode(item.clCd);
   const color = group ? group.color : '#666';
-  const areaStats = findAreaStatsByItem(item);
-  const rows = buildInfoRows(item, areaStats);
-  const marketCard = areaStats ? buildAreaStatsCard(areaStats) : '';
-
-  document.getElementById('info-content').innerHTML = `
-    <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '한의원')}</div>
-    <div class="info-name">${escapeHtml(item.name || '')}</div>
-    ${marketCard}
-    <div class="info-divider"></div>
-    ${rows.map(row => `
-      <div class="info-row">
-        <div class="info-row-label">${escapeHtml(row.label)}</div>
-        <div class="info-row-text">${row.html}</div>
-      </div>
-    `).join('')}
-  `;
-
+  renderInfoPanelContent(item, color, null, true);
   document.getElementById('info-panel').removeAttribute('hidden');
+  document.getElementById('info-content').scrollTop = 0;
+
+  if (!state.marketData?.dong) return;
+
+  const areaStats = await findAreaStatsByItem(item);
+  if (state.selectedId !== item.id) return;
+  renderInfoPanelContent(item, color, areaStats, false);
   document.getElementById('info-content').scrollTop = 0;
 }
 
-function buildInfoRows(item, areaStats) {
+function buildInfoRows(item, areaStats, options = {}) {
+  const { isAreaStatsLoading = false } = options;
   const rows = [];
 
   if (item.addr) rows.push({ label: '주소', html: escapeHtml(item.addr) });
@@ -1076,7 +1082,7 @@ function buildInfoRows(item, areaStats) {
   }
   if (item.estbDd) rows.push({ label: '개설일', html: escapeHtml(formatDate(item.estbDd)) });
   if (item.drTotCnt) {
-    const doctorText = `한의사 ${Number(item.drTotCnt).toLocaleString()}명`
+    const doctorText = `${getPractitionerLabel(item)} ${Number(item.drTotCnt).toLocaleString()}명`
       + (item.mdeptSdrCnt ? ` · 전문의 ${Number(item.mdeptSdrCnt).toLocaleString()}명` : '');
     rows.push({ label: '의료진', html: escapeHtml(doctorText) });
   }
@@ -1087,18 +1093,30 @@ function buildInfoRows(item, areaStats) {
     });
   }
   if (areaStats) {
-    const supportText = [
+    const supportLines = [
       areaStats.workerCount != null ? `종사자 ${Number(areaStats.workerCount).toLocaleString()}명` : '',
       areaStats.apartmentRate != null ? `아파트 ${Number(areaStats.apartmentRate).toFixed(1)}%` : '',
       areaStats.femaleRate != null ? `여성 ${Number(areaStats.femaleRate).toFixed(1)}%` : '',
       areaStats.onePersonHouseholdRate != null ? `1인가구 ${Number(areaStats.onePersonHouseholdRate).toFixed(1)}%` : '',
-    ].filter(Boolean).join(' · ');
-    if (supportText) {
-      rows.push({ label: '보조지표', html: escapeHtml(supportText) });
+    ].filter(Boolean);
+    if (supportLines.length) {
+      rows.push({ label: '보조지표', html: buildSupportMetricList(supportLines) });
     }
+  } else if (isAreaStatsLoading) {
+    rows.push({ label: '보조지표', html: '<span class="info-loading-text">읍면동 지표를 불러오는 중입니다.</span>' });
+  } else if (state.marketData?.dong) {
+    rows.push({ label: '보조지표', html: '<span class="info-empty-text">해당 좌표와 일치하는 읍면동 지표를 찾지 못했습니다.</span>' });
   }
 
   return rows;
+}
+
+function buildSupportMetricList(lines) {
+  return `
+    <div class="info-support-list">
+      ${lines.map(line => `<span class="info-support-line">${escapeHtml(line)}</span>`).join('')}
+    </div>
+  `;
 }
 
 function buildAreaStatsCard(areaStats) {
@@ -1124,8 +1142,26 @@ function buildAreaStatsCard(areaStats) {
   `;
 }
 
-function findAreaStatsByItem(item) {
-  if (!state.marketData?.dong || !item.sidoCd || !item.sgguCdNm || !item.addr) return null;
+function getPractitionerLabel(item) {
+  if (['41', '51'].includes(item.clCd)) return '치과의사';
+  if (['92', '93'].includes(item.clCd)) return '한의사';
+  return '의사';
+}
+
+async function findAreaStatsByItem(item) {
+  if (!state.marketData?.dong || !item?.sidoCd) return null;
+  const cacheKey = item.id || `${item.sidoCd}:${item.lat || ''}:${item.lng || ''}:${item.addr || ''}`;
+  if (Object.prototype.hasOwnProperty.call(state.areaStatsCache, cacheKey)) {
+    return state.areaStatsCache[cacheKey];
+  }
+
+  const matched = findAreaStatsByAddress(item) || await findAreaStatsByLocation(item);
+  state.areaStatsCache[cacheKey] = matched || null;
+  return state.areaStatsCache[cacheKey];
+}
+
+function findAreaStatsByAddress(item) {
+  if (!item.sgguCdNm || !item.addr) return null;
 
   const targetSgg = normalizeRegionName(item.sgguCdNm);
   const candidates = extractDongCandidates(item.addr);
@@ -1142,6 +1178,21 @@ function findAreaStatsByItem(item) {
     if (matched) return matched;
   }
   return null;
+}
+
+async function findAreaStatsByLocation(item) {
+  if (!item?.sidoCd || item.lat == null || item.lng == null) return null;
+  const geo = await loadDongGeo(item.sidoCd).catch(() => null);
+  if (!geo?.features?.length) return null;
+
+  const lng = Number(item.lng);
+  const lat = Number(item.lat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+
+  const feature = geo.features.find(candidate => pointInGeometry(lng, lat, candidate.geometry));
+  if (!feature) return null;
+
+  return state.marketData?.dong?.[feature.properties.sgisAdmCd] || null;
 }
 
 function extractDongCandidates(address) {
@@ -1324,9 +1375,36 @@ function focusGeometry(geometry) {
   state.map.fitBounds(bounds);
 }
 
-function getGeometryCenterLatLng(geometry) {
-  const bounds = geometryToBounds(geometry);
-  return bounds ? bounds.getCenter() : null;
+function pointInGeometry(lng, lat, geometry) {
+  if (!geometry?.coordinates) return false;
+  if (geometry.type === 'Polygon') {
+    return pointInPolygonRings(lng, lat, geometry.coordinates);
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return geometry.coordinates.some(rings => pointInPolygonRings(lng, lat, rings));
+  }
+  return false;
+}
+
+function pointInPolygonRings(lng, lat, rings) {
+  if (!Array.isArray(rings) || rings.length === 0) return false;
+  if (!pointInRing(lng, lat, rings[0])) return false;
+  return !rings.slice(1).some(ring => pointInRing(lng, lat, ring));
+}
+
+function pointInRing(lng, lat, ring) {
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const crossesLatitude = (yi > lat) !== (yj > lat);
+    if (!crossesLatitude) continue;
+    const intersectionX = ((xj - xi) * (lat - yi)) / ((yj - yi) || Number.EPSILON) + xi;
+    if (lng < intersectionX) inside = !inside;
+  }
+
+  return inside;
 }
 
 function geometryToBounds(geometry) {
