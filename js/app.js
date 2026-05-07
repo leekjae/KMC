@@ -31,7 +31,7 @@ const TYPE_GROUPS = [
 const LAYER_CONFIG = {
   none: {
     label: '마커만 보기',
-    description: '한의원 마커와 목록에만 집중해서 보기에 적합합니다.',
+    description: '선택한 종별의 마커와 목록에만 집중해서 보기에 적합합니다.',
   },
   totalPopulation: {
     label: '총인구',
@@ -65,14 +65,6 @@ const LAYER_CONFIG = {
     stroke: '#238858',
     valueType: 'count',
   },
-  apartmentRate: {
-    label: '아파트 비율',
-    description: '주거 밀도가 높고 안정적인 아파트 생활권을 비교합니다.',
-    gradFrom: 'rgb(238,232,255)',
-    gradTo: 'rgb(103,69,181)',
-    stroke: '#6c4ab7',
-    valueType: 'percent',
-  },
 };
 
 const AREA_DETAIL_METRICS = [
@@ -80,7 +72,8 @@ const AREA_DETAIL_METRICS = [
   { key: 'averageAge', label: '평균연령', formatter: value => formatAge(value) },
   { key: 'senior65Rate', label: '65세 이상', formatter: value => formatPercent(value) },
   { key: 'workerCount', label: '종사자수', formatter: value => formatFullCount(value, '명') },
-  { key: 'apartmentRate', label: '아파트 비율', formatter: value => formatPercent(value) },
+  { key: 'femaleRate', label: '여성', formatter: value => formatPercent(value) },
+  { key: 'onePersonHouseholdRate', label: '1인가구', formatter: value => formatPercent(value) },
 ];
 
 const CLUSTER_GRID = {
@@ -99,7 +92,7 @@ const DATA_BASE_URL = './data';
 const RESULTS_DISPLAY_LIMIT = 300;
 const INITIAL_MAP_CENTER = { lat: 36.5, lng: 127.8, zoom: 7 };
 const MOBILE_MEDIA_QUERY = '(max-width: 960px)';
-const AREA_POPUP_SUPPRESS_MS = 700;
+const AREA_CLICK_SUPPRESS_MS = 300;
 const DEFAULT_ACTIVE_TYPES = new Set(['한의원']);
 
 const state = {
@@ -155,7 +148,9 @@ function initMap() {
 
   naver.maps.Event.addListener(state.map, 'click', () => {
     if (Date.now() < state.suppressNextMapClickUntil) return;
-    closeAreaDetail();
+    if (state.selectedAreaCode) {
+      closeInfoPanel();
+    }
   });
 }
 
@@ -549,7 +544,6 @@ function getLayerValue(entry, layer) {
   if (layer === 'averageAge') return entry.averageAge ?? null;
   if (layer === 'senior65Rate') return entry.senior65Rate ?? null;
   if (layer === 'workerCount') return entry.workerCount ?? null;
-  if (layer === 'apartmentRate') return entry.apartmentRate ?? null;
   return null;
 }
 
@@ -568,9 +562,6 @@ function getLayerColor(value, min, max, layer) {
   }
   if (layer === 'workerCount') {
     return `rgb(${Math.round(221 - ratio * 192)},${Math.round(247 - ratio * 113)},${Math.round(232 - ratio * 145)})`;
-  }
-  if (layer === 'apartmentRate') {
-    return `rgb(${Math.round(238 - ratio * 135)},${Math.round(232 - ratio * 163)},${Math.round(255 - ratio * 74)})`;
   }
   return 'rgb(200,200,200)';
 }
@@ -622,10 +613,6 @@ function getChoroplethInfo() {
   return choroplethInfo;
 }
 
-function getAreaDetailPopupRoot() {
-  return document.getElementById('area-detail-popup');
-}
-
 function applyAreaBaseStyle(polygon) {
   polygon.setOptions(polygon.__areaBaseOptions || {});
 }
@@ -669,40 +656,22 @@ function clearSelectedAreaHighlight() {
 }
 
 function closeAreaDetail() {
-  const popupRoot = getAreaDetailPopupRoot();
-  if (popupRoot) {
-    popupRoot.hidden = true;
-    popupRoot.innerHTML = '';
-  }
+  const hadAreaSelection = Boolean(state.selectedAreaCode);
   clearSelectedAreaHighlight();
-}
-
-function bindAreaDetailCloseButton() {
-  const button = getAreaDetailPopupRoot()?.querySelector('[data-area-detail-close="true"]');
-  if (!button) return;
-  button.onclick = event => {
-    event.preventDefault();
-    event.stopPropagation();
-    closeAreaDetail();
-  };
-}
-
-function openAreaDetailPopup(areaData) {
-  const popupRoot = getAreaDetailPopupRoot();
-  if (!popupRoot) return;
-  state.selectedAreaData = areaData;
-  popupRoot.innerHTML = makeAreaDetailContent(areaData);
-  popupRoot.hidden = false;
-  bindAreaDetailCloseButton();
+  if (hadAreaSelection) {
+    document.getElementById('info-panel').setAttribute('hidden', '');
+  }
 }
 
 function selectAreaFeature(areaData, polygons) {
+  clearSelectedFacilitySelection();
   clearSelectedAreaHighlight();
   state.selectedAreaCode = areaData.sgisAdmCd || '';
   state.selectedAreaPolygons = polygons.slice();
   state.selectedAreaData = areaData;
   polygons.forEach(applyAreaSelectedStyle);
-  openAreaDetailPopup(areaData);
+  state.suppressNextMapClickUntil = Date.now() + AREA_CLICK_SUPPRESS_MS;
+  showAreaInfoPanel(areaData);
 }
 
 async function drawDongLayer(layer, sidoCode) {
@@ -733,9 +702,9 @@ async function drawDongLayer(layer, sidoCode) {
     const baseOptions = {
       fillColor: color,
       fillOpacity: 0.65,
-      strokeColor: color,
-      strokeWeight: 0,
-      strokeOpacity: 0,
+      strokeColor: '#f4f8fc',
+      strokeWeight: 1,
+      strokeOpacity: 0.78,
       zIndex: 8,
     };
     const polygons = geoJsonToPolygons(feature.geometry, baseOptions);
@@ -753,8 +722,7 @@ async function drawDongLayer(layer, sidoCode) {
         refreshAreaPolygonStyle(polygon, layer);
         info.close();
       });
-      naver.maps.Event.addListener(polygon, 'click', event => {
-        state.suppressNextMapClickUntil = Date.now() + AREA_POPUP_SUPPRESS_MS;
+      naver.maps.Event.addListener(polygon, 'click', () => {
         info.close();
         selectAreaFeature(areaData, polygons);
       });
@@ -864,13 +832,35 @@ async function drawSidoLayer(layer) {
 }
 
 function renderInfoPanelContent(item, color, areaStats, isAreaStatsLoading = false) {
+  setInfoPanelHeader('Facility Detail', '기관 상세');
   const rows = buildInfoRows(item, areaStats, { isAreaStatsLoading });
-  const marketCard = areaStats ? buildAreaStatsCard(areaStats) : '';
+  const areaSection = buildFacilityAreaSection(areaStats, isAreaStatsLoading);
 
   document.getElementById('info-content').innerHTML = `
     <div class="info-type-badge" style="background:${color}">${escapeHtml(item.clCdNm || '병의원')}</div>
     <div class="info-name">${escapeHtml(item.name || '')}</div>
-    ${marketCard}
+    ${rows.map(row => `
+      <div class="info-row">
+        <div class="info-row-label">${escapeHtml(row.label)}</div>
+        <div class="info-row-text">${row.html}</div>
+      </div>
+    `).join('')}
+    ${areaSection ? `<div class="info-divider"></div>${areaSection}` : ''}
+  `;
+}
+
+function renderAreaInfoPanelContent(areaData) {
+  setInfoPanelHeader('Area Detail', '읍면동 정보');
+  const rows = buildAreaInfoRows(areaData);
+  const title = [areaData?.sidoName || getSelectedSidoName(), areaData?.sggName, areaData?.name]
+    .filter(Boolean)
+    .join(' ');
+  const color = LAYER_CONFIG[state.activeLayer]?.stroke || '#10253c';
+
+  document.getElementById('info-content').innerHTML = `
+    <div class="info-type-badge" style="background:${color}">읍면동</div>
+    <div class="info-name">${escapeHtml(title || areaData?.name || '읍면동 정보')}</div>
+    ${buildAreaSummaryCard(areaData)}
     <div class="info-divider"></div>
     ${rows.map(row => `
       <div class="info-row">
@@ -879,6 +869,11 @@ function renderInfoPanelContent(item, color, areaStats, isAreaStatsLoading = fal
       </div>
     `).join('')}
   `;
+}
+
+function setInfoPanelHeader(kicker, title) {
+  document.getElementById('info-header-kicker').textContent = kicker;
+  document.getElementById('info-header-title').textContent = title;
 }
 
 function getAreaEntriesForRanking(sidoCode, metricKey) {
@@ -904,39 +899,6 @@ function formatAreaRank(rankInfo) {
   return `${rankInfo.rank.toLocaleString()}위/${rankInfo.total.toLocaleString()}개 읍면동`;
 }
 
-function makeAreaDetailMetricRow(areaData, metric) {
-  const rankInfo = getAreaRankInfo(areaData, metric.key);
-  const displayValue = areaData?.[metric.key] == null ? '-' : metric.formatter(areaData[metric.key]);
-  return `
-    <div class="area-popup-row">
-      <div class="area-popup-copy">
-        <span class="area-popup-label">${escapeHtml(metric.label)}</span>
-        <strong class="area-popup-value">${escapeHtml(displayValue)}</strong>
-      </div>
-      <span class="area-popup-rank">${escapeHtml(formatAreaRank(rankInfo))}</span>
-    </div>
-  `;
-}
-
-function makeAreaDetailContent(areaData) {
-  const title = [areaData?.sidoName, areaData?.sggName, areaData?.name].filter(Boolean).join(' ');
-  const subtitle = state.activeSido
-    ? `${getSelectedSidoName() || areaData?.sidoName || ''} 내 읍면동 비교`
-    : '읍면동 비교';
-  const rows = AREA_DETAIL_METRICS.map(metric => makeAreaDetailMetricRow(areaData, metric)).join('');
-
-  return `
-    <div class="map-area-popup">
-      <button class="area-popup-close" type="button" data-area-detail-close="true" aria-label="팝업 닫기">×</button>
-      <div class="area-popup-header">
-        <strong class="area-popup-title">${escapeHtml(title || areaData?.name || '읍면동 정보')}</strong>
-        <p class="area-popup-sub">${escapeHtml(subtitle)}</p>
-      </div>
-      <div class="area-popup-body">${rows}</div>
-    </div>
-  `;
-}
-
 function makeAreaTipContent(name, areaData, layer) {
   if (!areaData) {
     return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong><div class="tip-sub">데이터 없음</div></div>`;
@@ -947,7 +909,8 @@ function makeAreaTipContent(name, areaData, layer) {
     buildTipRow('평균연령', areaData.averageAge, value => `${Number(value).toFixed(1)}세`, layer === 'averageAge'),
     buildTipRow('65세 이상', areaData.senior65Rate, value => `${Number(value).toFixed(2)}%`, layer === 'senior65Rate'),
     buildTipRow('종사자수', areaData.workerCount, value => `${Number(value).toLocaleString()}명`, layer === 'workerCount'),
-    buildTipRow('아파트 비율', areaData.apartmentRate, value => `${Number(value).toFixed(2)}%`, layer === 'apartmentRate'),
+    buildTipRow('여성', areaData.femaleRate, value => `${Number(value).toFixed(2)}%`, false),
+    buildTipRow('1인가구', areaData.onePersonHouseholdRate, value => `${Number(value).toFixed(2)}%`, false),
   ].filter(Boolean).join('');
 
   return `<div class="map-tooltip"><strong>${escapeHtml(name)}</strong>${rows}</div>`;
@@ -993,7 +956,7 @@ function renderResultsList() {
     const color = group ? group.color : '#888';
     const region = [item.sidoCdNm, item.sgguCdNm].filter(Boolean).join(' ');
     const meta = [];
-    if (item.drTotCnt) meta.push(`한의사 ${Number(item.drTotCnt).toLocaleString()}명`);
+    if (item.drTotCnt) meta.push(`${getPractitionerLabel(item)} ${Number(item.drTotCnt).toLocaleString()}명`);
     if (item.estbDd) meta.push(`개설 ${formatDate(item.estbDd)}`);
 
     return `
@@ -1037,6 +1000,11 @@ function selectFacility(item) {
   closeSidebarOnMobile();
 }
 
+function clearSelectedFacilitySelection() {
+  state.selectedId = null;
+  document.querySelectorAll('.result-item').forEach(element => element.classList.remove('active'));
+}
+
 function highlightListItem(id) {
   document.querySelectorAll('.result-item').forEach(element => {
     const isActive = element.dataset.id === id;
@@ -1062,8 +1030,14 @@ async function showInfoPanel(item) {
   document.getElementById('info-content').scrollTop = 0;
 }
 
+function showAreaInfoPanel(areaData) {
+  renderAreaInfoPanelContent(areaData);
+  document.getElementById('info-panel').removeAttribute('hidden');
+  document.getElementById('info-content').scrollTop = 0;
+  closeSidebarOnMobile();
+}
+
 function buildInfoRows(item, areaStats, options = {}) {
-  const { isAreaStatsLoading = false } = options;
   const rows = [];
 
   if (item.addr) rows.push({ label: '주소', html: escapeHtml(item.addr) });
@@ -1092,31 +1066,61 @@ function buildInfoRows(item, areaStats, options = {}) {
       html: escapeHtml([item.sidoCdNm, item.sgguCdNm].filter(Boolean).join(' ')),
     });
   }
-  if (areaStats) {
-    const supportLines = [
-      areaStats.workerCount != null ? `종사자 ${Number(areaStats.workerCount).toLocaleString()}명` : '',
-      areaStats.apartmentRate != null ? `아파트 ${Number(areaStats.apartmentRate).toFixed(1)}%` : '',
-      areaStats.femaleRate != null ? `여성 ${Number(areaStats.femaleRate).toFixed(1)}%` : '',
-      areaStats.onePersonHouseholdRate != null ? `1인가구 ${Number(areaStats.onePersonHouseholdRate).toFixed(1)}%` : '',
-    ].filter(Boolean);
-    if (supportLines.length) {
-      rows.push({ label: '보조지표', html: buildSupportMetricList(supportLines) });
-    }
-  } else if (isAreaStatsLoading) {
-    rows.push({ label: '보조지표', html: '<span class="info-loading-text">읍면동 지표를 불러오는 중입니다.</span>' });
-  } else if (state.marketData?.dong) {
-    rows.push({ label: '보조지표', html: '<span class="info-empty-text">해당 좌표와 일치하는 읍면동 지표를 찾지 못했습니다.</span>' });
-  }
 
   return rows;
 }
 
-function buildSupportMetricList(lines) {
+function buildFacilityAreaSection(areaStats, isAreaStatsLoading) {
+  if (areaStats) return buildAreaStatsCard(areaStats);
+  if (isAreaStatsLoading) {
+    return `
+      <div class="info-market-card">
+        <h3>읍면동 정보</h3>
+        <p class="info-loading-text">해당 병의원이 위치한 읍면동 지표를 불러오는 중입니다.</p>
+      </div>
+    `;
+  }
+  if (state.marketData?.dong) {
+    return `
+      <div class="info-market-card">
+        <h3>읍면동 정보</h3>
+        <p class="info-empty-text">해당 좌표와 일치하는 읍면동 지표를 찾지 못했습니다.</p>
+      </div>
+    `;
+  }
+  return '';
+}
+
+function buildAreaSummaryCard(areaData) {
+  const compareText = state.activeSido
+    ? `${getSelectedSidoName() || areaData?.sidoName || ''} 내 읍면동 ${getAreaEntriesForRanking(areaData?.sidoCd, 'totalPopulation').length.toLocaleString()}개 비교`
+    : '선택한 시도 안에서 읍면동 비교';
+
   return `
-    <div class="info-support-list">
-      ${lines.map(line => `<span class="info-support-line">${escapeHtml(line)}</span>`).join('')}
+    <div class="info-market-card">
+      <h3>${escapeHtml(areaData?.name || '읍면동')} 요약</h3>
+      <p>${escapeHtml(compareText)}</p>
     </div>
   `;
+}
+
+function buildAreaInfoRows(areaData) {
+  const rows = [{
+    label: '행정구역',
+    html: escapeHtml([areaData?.sidoName || getSelectedSidoName(), areaData?.sggName, areaData?.name].filter(Boolean).join(' ')),
+  }];
+
+  AREA_DETAIL_METRICS.forEach(metric => {
+    const rankInfo = getAreaRankInfo(areaData, metric.key);
+    const displayValue = areaData?.[metric.key] == null ? '-' : metric.formatter(areaData[metric.key]);
+    const rankText = rankInfo ? ` (${formatAreaRank(rankInfo)})` : '';
+    rows.push({
+      label: metric.label,
+      html: `<strong>${escapeHtml(displayValue)}</strong>${escapeHtml(rankText)}`,
+    });
+  });
+
+  return rows;
 }
 
 function buildAreaStatsCard(areaStats) {
@@ -1136,6 +1140,18 @@ function buildAreaStatsCard(areaStats) {
         <div class="info-market-metric">
           <span>65세 이상</span>
           <strong>${escapeHtml(formatPercent(areaStats.senior65Rate))}</strong>
+        </div>
+        <div class="info-market-metric">
+          <span>종사자수</span>
+          <strong>${escapeHtml(formatFullCount(areaStats.workerCount, '명'))}</strong>
+        </div>
+        <div class="info-market-metric">
+          <span>여성</span>
+          <strong>${escapeHtml(formatPercent(areaStats.femaleRate))}</strong>
+        </div>
+        <div class="info-market-metric">
+          <span>1인가구</span>
+          <strong>${escapeHtml(formatPercent(areaStats.onePersonHouseholdRate))}</strong>
         </div>
       </div>
     </div>
@@ -1224,8 +1240,9 @@ function normalizeRegionName(name) {
 
 function closeInfoPanel() {
   document.getElementById('info-panel').setAttribute('hidden', '');
-  state.selectedId = null;
-  document.querySelectorAll('.result-item').forEach(element => element.classList.remove('active'));
+  clearSelectedFacilitySelection();
+  clearSelectedAreaHighlight();
+  setInfoPanelHeader('Facility Detail', '기관 상세');
 }
 
 function updateSidebarSummary() {
@@ -1240,8 +1257,8 @@ function updateSidebarSummary() {
 
   document.getElementById('summary-layer-value').textContent = LAYER_CONFIG[state.activeLayer].label;
   document.getElementById('summary-layer-desc').textContent = state.activeLayer === 'none'
-    ? '한의원 마커만 표시합니다.'
-    : '한의원 수요와 연결되는 SGIS 지표를 표시합니다.';
+    ? '선택한 종별의 마커만 표시합니다.'
+    : '개원 수요와 연결되는 SGIS 지표를 표시합니다.';
 
   const insight = getScopeInsights();
   document.getElementById('insight-scope-title').textContent = `${insight.name} 요약`;
@@ -1268,15 +1285,15 @@ function getScopeInsights() {
       population: null,
       averageAge: null,
       seniorRate: null,
-      note: 'SGIS 데이터를 불러오면 한의원 입지 지표가 표시됩니다.',
+      note: 'SGIS 데이터를 불러오면 입지 지표가 표시됩니다.',
     };
   }
 
   const totalPopulation = sum(scopedEntries.map(entry => entry.totalPopulation || 0));
   const weightedAverageAge = weightedAverage(scopedEntries, 'averageAge', 'totalPopulation');
   const weightedSeniorRate = weightedAverage(scopedEntries, 'senior65Rate', 'totalPopulation');
-  const weightedApartmentRate = weightedAverage(scopedEntries, 'apartmentRate', 'totalFamilies');
   const weightedFemaleRate = weightedAverage(scopedEntries, 'femaleRate', 'totalPopulation');
+  const weightedOnePersonRate = weightedAverage(scopedEntries, 'onePersonHouseholdRate', 'totalFamilies');
   const totalWorkers = sum(scopedEntries.map(entry => entry.workerCount || 0));
 
   return {
@@ -1287,8 +1304,8 @@ function getScopeInsights() {
     seniorRate: weightedSeniorRate,
     note: [
       totalWorkers ? `종사자 ${formatFullCount(totalWorkers, '명')}` : '',
-      weightedApartmentRate != null ? `아파트 ${formatPercent(weightedApartmentRate)}` : '',
       weightedFemaleRate != null ? `여성 ${formatPercent(weightedFemaleRate)}` : '',
+      weightedOnePersonRate != null ? `1인가구 ${formatPercent(weightedOnePersonRate)}` : '',
     ].filter(Boolean).join(' · ') || '현재 범위의 주요 입지 지표를 확인할 수 있습니다.',
   };
 }
@@ -1308,7 +1325,7 @@ function updateMapOverlay() {
 
 function getMapLayerLabel() {
   if (state.activeLayer === 'none') {
-    return '한의원 마커만 표시';
+    return '선택 종별 마커만 표시';
   }
   return `${LAYER_CONFIG[state.activeLayer].label} · 읍면동 단위`;
 }
